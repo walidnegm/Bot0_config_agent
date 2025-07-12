@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bot0-config-agent"
+version = "0.1.0"
+description = "A local-first configuration agent that uses LLaMA to reason and run tools."
+authors = [{ name = "Your Name" }]
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "transformers",
+    "sentence-transformers",
+    "faiss-cpu",
+    "sqlite-utils",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+

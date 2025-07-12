@@ -1,0 +1,59 @@
+[
+  {
+    "name": "seed_parser",
+    "description": "Parses plaintext files into key-value pairs.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "Path to config or password file"
+        }
+      },
+      "required": ["file"]
+    }
+  },
+  {
+    "name": "make_virtualenv",
+    "description": "Creates a Python virtual environment at a path.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Where to create the environment"
+        }
+      },
+      "required": ["path"]
+    }
+  },
+  {
+    "name": "list_project_files",
+    "description": "Lists all files under a directory (recursively)",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "root": {
+          "type": "string",
+          "description": "Root directory to scan (default: current)"
+        }
+      },
+      "required": []
+    }
+  },
+  {
+    "name": "echo_message",
+    "description": "Returns a message (for debugging or testing)",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "message": {
+          "type": "string",
+          "description": "Message to echo"
+        }
+      },
+      "required": ["message"]
+    }
+  }
+]
+
