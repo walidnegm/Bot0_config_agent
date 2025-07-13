@@ -1,8 +1,6 @@
-# tools/locate_file.py
-
 import os
 
-def locate_file(filename: str):
+def locate_file(**kwargs):
     matches = []
     search_roots = [os.path.expanduser("~"), os.getcwd()]
 

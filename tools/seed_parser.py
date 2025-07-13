@@ -1,6 +1,8 @@
-# tools/seed_parser.py
+def call(**kwargs):
+    file = kwargs.get("file")
+    if not file:
+        return { "error": "Missing required parameter: file" }
 
-def call(file):
     try:
         with open(file, "r") as f:
             lines = f.readlines()

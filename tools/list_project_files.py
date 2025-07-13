@@ -1,7 +1,7 @@
 import os
 
-def call(args: dict) -> dict:
-    root = args.get("root", ".")
+def call(**kwargs) -> dict:
+    root = kwargs.get("root", ".")
     file_paths = []
 
     for dirpath, _, filenames in os.walk(root):
