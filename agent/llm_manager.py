@@ -1,16 +1,8 @@
-# agent/llm_manager.py
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
+
 class LLMManager:
-    """
-    Lightweight wrapper around a local LLaMA-3-8B-Instruct model.
-
-    * Uses AutoTokenizer / AutoModelForCausalLM (model-agnostic, safest).
-    * Loads weights from a local snapshot directory.
-    * Provides a `.generate(prompt: str) -> str` helper.
-    """
-
     _MODEL_PATH = (
         "/root/projects/Bot0_config_agent/"
         "model/models--meta-llama--Meta-Llama-3-8B-Instruct/"
@@ -18,30 +10,88 @@ class LLMManager:
     )
 
     def __init__(self):
-        print("[LLMManager] Loading tokenizer & model …")
-        self.tokenizer = AutoTokenizer.from_pretrained(self._MODEL_PATH, use_fast=False)
-        self.model = AutoModelForCausalLM.from_pretrained(
-            self._MODEL_PATH,
-            device_map="auto",
-            torch_dtype=torch.float16  # keep memory low; switch to float32 on CPU if needed
-        )
-        self.eos = self.tokenizer.eos_token_id
-
-    def generate(self, prompt: str, max_new_tokens: int = 256) -> str:
-        """
-        Feed `prompt` to the model and return the raw completion *after* the prompt.
-        Temperature is set to 0.0 for deterministic output; change as desired.
-        """
-        inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
-        with torch.no_grad():
-            outputs = self.model.generate(
-                **inputs,
-                max_new_tokens=max_new_tokens,
-                do_sample=False,          # deterministic
-                temperature=0.0,
-                pad_token_id=self.eos
+        try:
+            print("[LLMManager] Loading tokenizer & model …")
+            self.tokenizer = AutoTokenizer.from_pretrained(self._MODEL_PATH, use_fast=False)
+            self.model = AutoModelForCausalLM.from_pretrained(
+                self._MODEL_PATH,
+                device_map="auto",
+                torch_dtype=torch.float16
             )
-        full_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
-        # Return only the part generated *after* the prompt
-        return full_text[len(prompt):].strip()
+            self.eos = self.tokenizer.eos_token_id
+            print("[LLMManager] Model loaded successfully.")
+        except Exception as e:
+            print(f"❌ [LLMManager] Failed to load model: {e}")
+            raise
+
+    def generate(
+        self,
+        prompt: str,
+        max_new_tokens: int = 256,
+        temperature: float = 0.0,
+        system_prompt: str = None
+    ) -> str:
+        """
+        Feed a prompt to the model and return the generated response.
+        Optional `system_prompt` acts as role conditioning (like OpenAI's system message).
+        """
+        full_prompt = (
+            f"[SYSTEM] {system_prompt}\n[USER] {prompt}\n[ASSISTANT]"
+            if system_prompt else prompt
+        )
+
+        print(f"[LLMManager] Full prompt:\n{repr(full_prompt)}\n")
+
+        try:
+            inputs = self.tokenizer(full_prompt, return_tensors="pt").to(self.model.device)
+
+            with torch.no_grad():
+                outputs = self.model.generate(
+                    **inputs,
+                    max_new_tokens=max_new_tokens,
+                    do_sample=temperature > 0.0,
+                    temperature=temperature,
+                    pad_token_id=self.eos
+                )
+
+            full_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
+
+            print(f"[LLMManager] Full decoded output:\n{repr(full_text)}\n")
+
+            # Attempt to remove prompt from output
+            if full_text.startswith(full_prompt):
+                generated_text = full_text[len(full_prompt):].strip()
+            else:
+                print("⚠️ [LLMManager] Warning: Prompt prefix not found in output. Returning full decoded text.")
+                generated_text = full_text
+
+            # 🔍 New debug block before returning
+            print(f"[LLMManager] 🧪 Generated text before return:\n{repr(generated_text)}\n")
+
+            if not isinstance(generated_text, str):
+                raise ValueError(f"Generated output is not a string: {type(generated_text)}")
+
+            return generated_text
+
+        except Exception as e:
+            print(f"❌ [LLMManager] Generation failed: {e}")
+            raise
+
+
+# Shared instance
+_llm = LLMManager()
+
+def ask_llm(prompt: str, temperature: float = 0.0, role: str = None) -> str:
+    system_prompt = {
+        "copilot": "You are GitHub Copilot, a helpful developer assistant.",
+        "ops": "You are an infrastructure and DevOps expert.",
+        "qa": "You are a strict QA tester reviewing behavior and stability.",
+        "helper": "You are a friendly and clear technical assistant."
+    }.get(role, "You are a helpful assistant.")
+
+    return _llm.generate(
+        prompt=prompt,
+        temperature=temperature,
+        system_prompt=system_prompt
+    )
 

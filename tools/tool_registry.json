@@ -1,59 +1,111 @@
-[
-  {
-    "name": "seed_parser",
+{
+  "talk_llm": {
+    "description": "Send a prompt to the local LLaMA model with optional persona and temperature.",
+    "import_path": "tools.ask_llm.talk_llm",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "The prompt or question to ask the LLM."
+        },
+        "role": {
+          "type": "string",
+          "description": "The assistant persona to use: 'helper', 'copilot', 'ops', or 'qa'.",
+          "default": "helper"
+        },
+        "temperature": {
+          "type": "number",
+          "description": "Sampling temperature for output randomness.",
+          "default": 0.2
+        }
+      },
+      "required": ["query"]
+    }
+  },
+  "seed_parser": {
     "description": "Parses plaintext files into key-value pairs.",
+    "import_path": "tools.seed_parser.seed_parser",
     "parameters": {
       "type": "object",
       "properties": {
         "file": {
           "type": "string",
-          "description": "Path to config or password file"
+          "description": "Path to config or password file."
         }
       },
       "required": ["file"]
     }
   },
-  {
-    "name": "make_virtualenv",
+  "make_virtualenv": {
     "description": "Creates a Python virtual environment at a path.",
+    "import_path": "tools.make_virtualenv.make_virtualenv",
     "parameters": {
       "type": "object",
       "properties": {
         "path": {
           "type": "string",
-          "description": "Where to create the environment"
+          "description": "Where to create the environment."
         }
       },
       "required": ["path"]
     }
   },
-  {
-    "name": "list_project_files",
-    "description": "Lists all files under a directory (recursively)",
+  "list_project_files": {
+    "description": "Lists all files under a directory recursively.",
+    "import_path": "tools.list_project_files.list_project_files",
     "parameters": {
       "type": "object",
       "properties": {
         "root": {
           "type": "string",
-          "description": "Root directory to scan (default: current)"
+          "description": "Root directory to scan (default: current)."
         }
       },
-      "required": []
+      "required": ["root"]
     }
   },
-  {
-    "name": "echo_message",
-    "description": "Returns a message (for debugging or testing)",
+  "echo_message": {
+    "description": "Returns a message (for debugging or testing).",
+    "import_path": "tools.echo_message.echo_message",
     "parameters": {
       "type": "object",
       "properties": {
         "message": {
           "type": "string",
-          "description": "Message to echo"
+          "description": "Message to echo."
         }
       },
       "required": ["message"]
     }
+  },
+  "retrieval_tool": {
+    "description": "Searches environment variables, .env files, and project files for secrets based on query intent.",
+    "import_path": "tools.retrieval_tool.retrieval_tool",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "Intent or keyword related to secret (e.g. GitHub token, Hugging Face password)."
+        }
+      },
+      "required": ["query"]
+    }
+  },
+  "locate_file": {
+    "description": "Locates a specific file by name starting from current or home directory.",
+    "import_path": "tools.locate_file.locate_file",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "filename": {
+          "type": "string",
+          "description": "Filename to search for (e.g., model.bin)."
+        }
+      },
+      "required": ["filename"]
+    }
   }
-]
+}
 

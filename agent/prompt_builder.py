@@ -1,14 +1,15 @@
+# agent/prompt_builder.py
+
 class PromptBuilder:
     def __init__(self, tool_registry):
         self.tool_registry = tool_registry
 
-    def build_prompt(self, instruction: str, tools: list) -> str:
+    def build_prompt(self, instruction: str, tools: dict) -> str:
         tool_lines = []
-        for tool in tools:
-            name = tool["name"]
-            desc = tool["description"]
-            props = tool["parameters"]["properties"]
-            args = ", ".join(f'{key}: {val["type"]}' for key, val in props.items())
+        for name, tool in tools.items():  # ✅ Fixed: use .items() for dict
+            desc = tool.get("description", "No description provided.")
+            props = tool.get("parameters", {}).get("properties", {})
+            args = ", ".join(f'{key}: {val.get("type", "unknown")}' for key, val in props.items())
             tool_lines.append(f"- {name}({args}): {desc}")
 
         tools_block = "\n".join(tool_lines)
@@ -17,19 +18,56 @@ class PromptBuilder:
 
 {tools_block}
 
-Your response MUST be ONLY a single valid JSON array of objects, starting directly with [ and ending with ].
-Do NOT add ANY text, explanations, code blocks, backticks (```), Markdown, or extra characters before, after, or around the JSON.
-Do NOT wrap in "json" or any labels. Output raw JSON only.
+Your ONLY output must be a single valid JSON array of objects, without any preamble or explanation.
 
-Each item in the array should be an object like {{"tool": "tool_name", "params": {{"arg1": "value1", "arg2": "value2"}}}}.
-For multi-step instructions, use sequential items in the array and reference previous outputs with "<prev_output>" in params.
+Format strictly as follows:
+[
+  {{
+    "tool": "tool_name",
+    "params": {{
+      "arg1": "value1",
+      "arg2": "value2"
+    }}
+  }},
+  ...
+]
 
-Example of correct output for a single-step instruction:
-[{{"tool": "list_project_files", "params": {{"root": "path/to/project"}}}}]
+Do NOT include Markdown formatting, comments, code blocks (no ```), or labels like "json".
+Just return the raw JSON array.
 
-Example for multi-step (e.g., list then echo):
-[{{"tool": "list_project_files", "params": {{"root": "path/to/project"}}}}, {{"tool": "echo_message", "params": {{"message": "<prev_output>"}}}}]
+If no tool is relevant, return an empty array: []
 
-Now, respond only with the JSON array for this instruction: {instruction}
+For multi-step tasks, return multiple tool calls in sequence. You may refer to previous tool outputs using the string "<prev_output>".
+
+Examples:
+
+Single step:
+[
+  {{
+    "tool": "list_project_files",
+    "params": {{
+      "root": "/path/to/project"
+    }}
+  }}
+]
+
+Two steps:
+[
+  {{
+    "tool": "list_project_files",
+    "params": {{
+      "root": "/my/project"
+    }}
+  }},
+  {{
+    "tool": "echo_message",
+    "params": {{
+      "message": "<prev_output>"
+    }}
+  }}
+]
+
+Instruction: {instruction}
 """
         return prompt
+
