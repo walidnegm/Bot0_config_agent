@@ -106,25 +106,6 @@
       },
       "required": ["filename"]
     }
-  },
-  "find_file_by_keyword": {
-    "description": "Searches for files containing the keyword in their name under the given directory.",
-    "import_path": "tools.find_file_by_keyword.find_file_by_keyword",
-    "parameters": {
-      "type": "object",
-      "properties": {
-        "keywords": {
-          "type": "array",
-          "items": { "type": "string" },
-          "description": "List of partial names to match (e.g., ['llama', 'model'])."
-        },
-        "root": {
-          "type": "string",
-          "description": "Root directory to search from. Defaults to current working directory."
-        }
-      },
-      "required": ["keywords"]
-    }
   }
 }
 

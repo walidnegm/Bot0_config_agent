@@ -8,7 +8,6 @@ class ToolExecutor:
 
     def execute_plan(self, plan: list, dry_run: bool = False) -> list:
         results = []
-        prev_output = None  # Track last output for <prev_output> substitution
 
         if not isinstance(plan, list):
             return [{
@@ -46,32 +45,18 @@ class ToolExecutor:
                 })
                 continue
 
-            # 🔁 Replace <prev_output> with stringified value or extracted field
-            resolved_params = {}
-            for k, v in params.items():
-                if isinstance(v, str) and "<prev_output>" in v:
-                    if isinstance(prev_output, dict):
-                        # Prefer the 'message' field if present
-                        resolved_val = str(prev_output.get("message", prev_output))
-                    else:
-                        resolved_val = str(prev_output)
-
-                    resolved_params[k] = v.replace("<prev_output>", resolved_val)
-                else:
-                    resolved_params[k] = v
-
             if dry_run:
                 results.append({
                     "tool": tool_name,
                     "status": "dry_run",
-                    "params": resolved_params,
+                    "params": params,
                     "message": "Tool not executed (dry run mode)"
                 })
                 continue
 
             try:
                 tool_fn = self.registry.get_function(tool_name)
-                output = tool_fn(**resolved_params)
+                output = tool_fn(**params)
 
                 if not isinstance(output, dict):
                     output = {
@@ -80,16 +65,12 @@ class ToolExecutor:
                         "message": ""
                     }
 
-                result = {
+                results.append({
                     "tool": tool_name,
                     "status": output.get("status", "ok"),
                     "message": output.get("message", ""),
                     "result": output.get("result", output)
-                }
-
-                results.append(result)
-                prev_output = result["result"]  # Store result for next step
-
+                })
             except Exception as e:
                 results.append({
                     "tool": tool_name,

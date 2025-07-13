@@ -9,7 +9,16 @@ class LLMManager:
         "snapshots/8afb486c1db24fe5011ec46dfbe5b5dccdb575c2"
     )
 
-    def __init__(self):
+    def __init__(self, use_openai: bool = False):
+        self.use_openai = use_openai
+
+        if self.use_openai:
+            print("[LLMManager] ⚠️ Skipping local model load — using OpenAI backend.")
+            self.tokenizer = None
+            self.model = None
+            self.eos = None
+            return
+
         try:
             print("[LLMManager] Loading tokenizer & model …")
             self.tokenizer = AutoTokenizer.from_pretrained(self._MODEL_PATH, use_fast=False)
@@ -35,6 +44,9 @@ class LLMManager:
         Feed a prompt to the model and return the generated response.
         Optional `system_prompt` acts as role conditioning (like OpenAI's system message).
         """
+        if self.use_openai:
+            raise RuntimeError("LLMManager is in OpenAI mode — local generation is disabled.")
+
         full_prompt = (
             f"[SYSTEM] {system_prompt}\n[USER] {prompt}\n[ASSISTANT]"
             if system_prompt else prompt
@@ -77,9 +89,6 @@ class LLMManager:
             print(f"❌ [LLMManager] Generation failed: {e}")
             raise
 
-
-# Shared instance
-_llm = LLMManager()
 
 def ask_llm(prompt: str, temperature: float = 0.0, role: str = None) -> str:
     system_prompt = {

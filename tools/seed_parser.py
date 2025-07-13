@@ -1,4 +1,4 @@
-def call(**kwargs):
+def seed_parser(**kwargs):
     file = kwargs.get("file")
     if not file:
         return { "error": "Missing required parameter: file" }
@@ -9,5 +9,5 @@ def call(**kwargs):
         kv_pairs = dict(line.strip().split("=", 1) for line in lines if "=" in line)
         return { "parsed": kv_pairs }
     except Exception as e:
-        return { "error": str(e) }
+        return { "status": "error", "message": str(e) }
 

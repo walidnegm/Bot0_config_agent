@@ -46,7 +46,7 @@ Single step:
   {{
     "tool": "list_project_files",
     "params": {{
-      "root": "/path/to/project"
+      "root": "."
     }}
   }}
 ]
@@ -56,7 +56,7 @@ Two steps:
   {{
     "tool": "list_project_files",
     "params": {{
-      "root": "/my/project"
+      "root": "."
     }}
   }},
   {{

@@ -1,4 +1,4 @@
-# agent/agent_core.py
+# agent/core.py
 
 from agent.executor import ToolExecutor
 from agent.planner import Planner
@@ -6,10 +6,10 @@ from tools.tool_registry import ToolRegistry
 
 
 class AgentCore:
-    def __init__(self):
+    def __init__(self, use_openai=False):
         print("[AgentCore] 🔧 Initializing ToolRegistry, Planner, and Executor…")
         self.registry = ToolRegistry()
-        self.planner = Planner()
+        self.planner = Planner(use_openai=use_openai)
         self.executor = ToolExecutor()
         print("[AgentCore] ✅ Initialization complete.")
 
