@@ -2,8 +2,16 @@
 
 import json
 import re
+from typing import Dict, List
+from pydantic import BaseModel, ValidationError
 from tools.tool_registry import ToolRegistry
 from agent.llm_manager import LLMManager
+
+
+# ✅ Step 1: Define schema for validating each tool call
+class ToolCall(BaseModel):
+    tool: str
+    params: Dict[str, str]
 
 
 class Planner:
@@ -24,7 +32,20 @@ class Planner:
         try:
             extracted_json = self._extract_json_from_response(llm_output)
             print("\n[Planner] ✅ Extracted JSON array:\n", extracted_json)
-            return json.loads(extracted_json)
+
+            raw_tool_calls = json.loads(extracted_json)
+
+            # ✅ Step 2: Validate with Pydantic
+            validated_calls: List[ToolCall] = []
+            for i, item in enumerate(raw_tool_calls):
+                try:
+                    validated = ToolCall(**item)
+                    validated_calls.append(validated)
+                except ValidationError as ve:
+                    print(f"[Planner] ❌ Validation error in item {i}:\n{ve}\n")
+
+            return [call.dict() for call in validated_calls]
+
         except Exception as e:
             print("\n[Planner] ❌ Failed to parse tools JSON:\n", repr(llm_output))
             raise ValueError(f"❌ Failed to parse tools JSON: {e}")
@@ -54,14 +75,21 @@ class Planner:
         )
         return prompt
 
-    def _extract_json_from_response(self, text):
+    def _extract_json_from_response(self, text: str) -> str:
         """
-        Extracts the first valid JSON array from LLM output using regex,
-        avoiding markdown/code blocks and surrounding instructions.
+        Extracts a valid JSON array from the LLM response using regex,
+        filters out malformed matches, and returns the first valid match.
         """
         text = text.strip().replace("```json", "").replace("```", "")
-        match = re.search(r'\[\s*(?:\{.*?\}\s*,?\s*)+\]', text, re.DOTALL)
-        if not match:
-            raise ValueError("No valid JSON array found in the LLM response.")
-        return match.group(0)
+        matches = re.findall(r'\[\s*\{.*?\}\s*\]', text, re.DOTALL)
+
+        for match in matches:
+            try:
+                parsed = json.loads(match)
+                if isinstance(parsed, list) and all("tool" in x and "params" in x for x in parsed):
+                    return json.dumps(parsed)
+            except Exception:
+                continue
+
+        raise ValueError("No valid JSON array of tool calls found in LLM response.")
 
