@@ -1,4 +1,14 @@
 {
+  "summarize_config": {
+   "description": "Summarizes known config files (.env, config.yaml, etc.) and lists important keys.",
+   "import_path": "tools.summarize_config.summarize_config",
+   "parameters": {
+    "type": "object",
+    "properties": {},
+    "required": []
+  }
+},
+
   "talk_llm": {
     "description": "Send a prompt to the local LLaMA model with optional persona and temperature.",
     "import_path": "tools.ask_llm.talk_llm",
