@@ -1,7 +1,3 @@
-Here’s your `README.md` version, fully formatted for copy-paste:
-
----
-
 # Bot0 Config Agent
 
 ## 🚀 Quick Start
@@ -60,7 +56,9 @@ python -m agent.cli --once "count files and directory size" --openai
 
 ---
 
-## 🧩 Step-by-Step Sequence (High-level)
+## How Does It Work
+---
+### 🧩 Step-by-Step Sequence (High-level)
 
 1. **User launches CLI and enters an instruction**
 2. `cli.py` receives input and calls `AgentCore.handle_instruction(instruction)`
@@ -188,4 +186,37 @@ def hello_tool(**kwargs):
 * Return errors as `{"status": "error", "message": "description of error"}` for consistency.
 
 ---
+## Local LLM Models
+
+---
+
+### Hardware Requirements: Desktops/Towers
+
+**Recommended models:**
+- `meta-llama/Meta-Llama-3-8B-Instruct`
+- Or similar 7B+ parameter models, such as Qwen (Alibaba), Gemma (Google), DeepSeek, etc.
+
+---
+
+### More Laptop-Friendly Choices
+
+As **8GB dedicated VRAM is the de facto upper limit for most of today’s gaming laptops**, we recommend **4-bit quantized small models** from Alibaba, Google, Meta, and Microsoft to achieve the best balance of speed, performance, quality, ease of use, and cost—**without running out of memory (OOM)**.
+
+- Best suited for laptops with **4GB–8GB dedicated VRAM**
+- **GPTQ** and **AWQ quantization** are state-of-the-art methods that preserve most of the full-size model’s quality, though they are slightly more complex to implement.
+- **Cost & Licensing:**
+    - **Meta** models are free for research and prototyping, but have restrictions on commercial use.
+    - **Microsoft’s Phi** models are completely free, even for commercial use (MIT license).
+    - **Alibaba’s Qwen** and **Google’s Gemma** models are free for most uses under permissive open-source licenses (Apache 2.0), with only minor restrictions (e.g., attribution, NOTICE file).
+
+---
+
+
+| Model                           | Parameters | Quantization | VRAM (GB) | Overall Quality vs. Mid-Size Unquantized Models         | Ease of Installation        | License                                 |
+| ------------------------------- | ---------- | ------------ | --------- | ----------------------------------- | --------------------------- | --------------------------------------- |
+| **Qwen3-4B-Instruct-GPTQ-Int4** | 4B         | GPTQ 4-bit   | 2.5–4     | Comparable, strong reasoning/coding | High (gptqmodel, Ollama)    | Apache 2.0                              |
+| **Qwen3-1.7B-Instruct-AWQ**     | 1.7B       | AWQ 4-bit    | 1.5–2.5   | Lower, good for simple tasks        | High (vLLM, Ollama)         | Apache 2.0                              |
+| **Gemma-2-2B-it-GPTQ**          | 2B         | GPTQ 4-bit   | 1.5–2.5   | Slightly below, efficient           | High (gptqmodel, Ollama)    | Apache 2.0                              |
+| **Phi-3.5-mini-instruct-AWQ**   | 3.8B       | AWQ 4-bit    | 2.5–3.5   | Comparable, excels in math/RAG      | High (vLLM, LM Studio)      | MIT                                     |
+| **Llama-3.2-3B-Instruct-GPTQ**  | 3B         | GPTQ 4-bit   | 3.5–4.5   | Comparable, efficient               | High (auto-gptq, LM Studio) | Llama-3.2 (research/limited commercial) |
 

@@ -5,9 +5,9 @@ import torch
 from transformers import AutoTokenizer
 from gptqmodel import GPTQModel
 
-model_id = "TheBloke/Llama-2-7B-Chat-GPTQ"
+MODEL_ID = "TheBloke/Llama-2-7B-Chat-GPTQ"
 hf_token = os.getenv("HUGGING_FACE_TOKEN")
-prompt = "Q: What is the capital of France?\nA:"
+PROMPT = "Q: What is the capital of France?\nA:"
 
 
 def try_load(local_only=True):
@@ -15,13 +15,13 @@ def try_load(local_only=True):
     print(f"Trying local_only={local_only} ...")
     try:
         tokenizer = AutoTokenizer.from_pretrained(
-            model_id,
+            MODEL_ID,
             use_fast=True,
             token=hf_token,
             local_files_only=local_only,
         )
         model = GPTQModel.from_quantized(
-            model_id,
+            MODEL_ID,
             device_map="auto",  # Automatically place model on GPU/CPU
             torch_dtype=torch.float16,
             token=hf_token,
@@ -46,7 +46,7 @@ def main():
             )
 
     # Prepare input
-    inputs = tokenizer(prompt, return_tensors="pt").to(
+    inputs = tokenizer(PROMPT, return_tensors="pt").to(
         "cuda" if torch.cuda.is_available() else "cpu"
     )
 
