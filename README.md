@@ -1,43 +1,86 @@
-SET THESE ENVIRONMENT VARIABLES
--------------------------------
+Here’s your `README.md` version, fully formatted for copy-paste:
+
+---
+
+# Bot0 Config Agent
+
+## 🚀 Quick Start
+
+### 1. **Set Environment Variables**
+
+```bash
 export HF_TOKEN=your_token
 export GITHUB_TOKEN=your_github_token
 export OPENAI_API_KEY=your_openai_key
+```
 
-CREATE A VIRTUAL ENVIRONMNET & ACTIVATE
----------------------------------------
-use requirements.txt
+---
 
-DOWNLOAD MOEDL TO USE LOCALLY
--------------------------------
+### 2. **Create a Virtual Environment & Activate**
+
+Install dependencies with `requirements.txt`:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+---
+
+### 3. **Download Model for Local Use**
+
+Login to Hugging Face and prepare the model directory:
+
+```bash
 huggingface-cli login
 mkdir -p model/models--meta-llama--Meta-Llama-3-8B-Instruct
 cd model/models--meta-llama--Meta-Llama-3-8B-Instruct
+```
 
-Run script to download the model - downloadllama.py
+Download the model using the provided script:
 
-To Run the CLI
---------------
+```bash
+python downloadllama.py
+```
+
+---
+
+### 4. **Run the CLI**
+
+Change to your project directory and run example commands:
+
+```bash
 cd ~/../Bot0_config_agent
-python -m agent.cli --once "where are my model files" --openai ~/projects/Bot0_config_agent
+
+python -m agent.cli --once "where are my model files" --openai
 python -m agent.cli --once "where are my python files in agents dir" --openai
+python -m agent.cli --once "count files and directory size" --openai
+```
 
+---
 
-Step-by-Step Sequence (High-level)
-----------------------------------
-User launches CLI and enters an instruction
-1. cli.py receives input and calls AgentCore.handle_instruction(instruction)
-2. AgentCore calls Planner.plan(instruction)
-- Planner builds a prompt describing all available tools, adds the user instruction, and sends it to the LLM
-- LLM returns a JSON array: plan of tool calls with params
-- Planner parses/validates the JSON plan and returns it
-4. AgentCore sends the plan to ToolExecutor.execute_plan(plan)
-- Executor runs each step (tool call) in order, substituting <prev_output> if needed
-- Loads the actual tool function via ToolRegistry and executes it
-- Collects the results
-5. cli.py receives the results and displays them to the user
+## 🧩 Step-by-Step Sequence (High-level)
 
-Diagram
+1. **User launches CLI and enters an instruction**
+2. `cli.py` receives input and calls `AgentCore.handle_instruction(instruction)`
+3. `AgentCore` calls `Planner.plan(instruction)`
+
+   * Planner builds a prompt describing all available tools, adds the user instruction, and sends it to the LLM
+   * LLM returns a JSON array: plan of tool calls with params
+   * Planner parses/validates the JSON plan and returns it
+4. `AgentCore` sends the plan to `ToolExecutor.execute_plan(plan)`
+
+   * Executor runs each step (tool call) in order, substituting `<prev_output>` if needed
+   * Loads the actual tool function via `ToolRegistry` and executes it
+   * Collects the results
+5. `cli.py` receives the results and displays them to the user
+
+---
+
+### 🗂️ **Diagram**
+
+```
 User
  |
  v
@@ -68,11 +111,11 @@ cli.py
 [format/display output]
  |
 User sees results
+```
 
+---
 
-🛠️ How to Add a New Tool
--------------------------
-Absolutely! Here’s a **concise step-by-step guide** for adding a new tool to your agent, in a format ready for inclusion in your `README.md`:
+## 🛠️ How to Add a New Tool
 
 ### 1. **Implement Your Tool Function**
 
@@ -91,6 +134,8 @@ def hello_tool(**kwargs):
         "message": f"Hello, {name}!"
     }
 ```
+
+---
 
 ### 2. **Register the Tool in `tool_registry.json`**
 
@@ -116,12 +161,15 @@ def hello_tool(**kwargs):
   }
 }
 ```
+
+---
+
 ### 3. **(Optional) Test the Tool**
 
 * Start the CLI and try an instruction that should trigger your tool, e.g.:
 
-  ```
-  python agent/cli.py --once "say hello to Alice"
+  ```bash
+  python agent/cli.py --once "Where are my project files"
   ```
 * If you see validation errors, check your function name and parameters in `tool_registry.json`.
 
@@ -138,3 +186,6 @@ def hello_tool(**kwargs):
 
 * Use clear descriptions and parameter names—they help the LLM use your tool correctly!
 * Return errors as `{"status": "error", "message": "description of error"}` for consistency.
+
+---
+

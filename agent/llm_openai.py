@@ -1,8 +1,12 @@
 import os
+from dotenv import load_dotenv
 from openai import OpenAI
 
+
 # Initialize OpenAI client with API key from environment
+load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
 
 def generate(prompt: str, temperature: float = 0.2, model: str = "gpt-4") -> str:
     """
@@ -24,17 +28,13 @@ def generate(prompt: str, temperature: float = 0.2, model: str = "gpt-4") -> str
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a precise tool-calling agent. Return only a JSON array of tool calls."
+                    "content": "You are a precise tool-calling agent. Return only a JSON array of tool calls.",
                 },
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ]
+                {"role": "user", "content": prompt},
+            ],
         )
         return response.choices[0].message.content.strip()
 
     except Exception as e:
         print(f"[OpenAI LLM] ❌ Error: {e}")
         raise
-

@@ -135,6 +135,20 @@
       },
       "required": ["keywords"]
     }
+  },
+  "find_dir_size": {
+    "description": "Counts the number of files and the total size (in bytes and MB) of all files in a directory (recursively).",
+    "import_path": "tools.find_dir_size.find_dir_size",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "root": {
+          "type": "string",
+          "description": "Directory to scan (default is current directory)."
+        }
+      },
+    "required": []
+    }
   }
 }
 
