@@ -2,7 +2,6 @@ accelerate==1.8.1
 annotated-types==0.7.0
 anyio==4.9.0
 bitsandbytes==0.46.1
-bot0-config-agent==0.1.0
 certifi==2025.6.15
 charset-normalizer==3.4.2
 distro==1.9.0
