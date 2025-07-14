@@ -5,9 +5,13 @@ Tool to generate file size & number of files stats for a directory.
 """
 
 from pathlib import Path
+import humanize
 
 
 def find_dir_size(**kwargs):
+    """
+    Find the file size of a directory and number of files.
+    """
     root = kwargs.get("root") or "."
     path = Path(root)
     if not path.exists() or not path.is_dir():
@@ -18,23 +22,31 @@ def find_dir_size(**kwargs):
 
     total_size = 0
     num_files = 0
+    seen_inodes = set()
 
     for file in path.rglob("*"):
-        if file.is_file():
-            num_files += 1
+        if file.is_file() and not file.is_symlink():
             try:
-                total_size += file.stat().st_size
+                stat = file.stat()
+                # Track inode to avoid double-counting hard links
+                if stat.st_ino in seen_inodes:
+                    continue
+                seen_inodes.add(stat.st_ino)
+                num_files += 1
+                total_size += stat.st_size
             except Exception:
                 pass  # Ignore unreadable files
 
-    size_mb = total_size / (1024 * 1024)
+    # Format in GB, MB, etc.
+    size_hr = humanize.naturalsize(total_size, binary=True)
+
     return {
         "status": "ok",
         "result": {
             "num_files": num_files,
             "total_size_bytes": total_size,
-            "total_size_mb": round(size_mb, 2),
+            "total_size_hr": size_hr,
             "root": str(path.resolve()),
         },
-        "message": f"{num_files} files, {round(size_mb,2)} MB in '{root}'",
+        "message": f"{num_files} files, {size_hr} in '{root}'",
     }
