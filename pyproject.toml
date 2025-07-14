@@ -14,8 +14,22 @@ dependencies = [
     "sentence-transformers",
     "faiss-cpu",
     "sqlite-utils",
+    "pylance>=0.10.15",
+    "torch>=2.5.1",
+    "torchvision>=0.20.1",
+    "torchaudio>=2.5.1",
+    "pylint>=3.2.7",
+    "black>=24.8.0",
+    "python-dotenv>=1.0.1",
+    "optimum>=1.23.3",
 ]
 
 [tool.setuptools.packages.find]
 where = ["."]
+
+[dependency-groups]
+dev = [
+    "black>=24.8.0",
+    "pylint>=3.2.7",
+]
 
