@@ -9,6 +9,22 @@
   }
 },
 
+"llm_response": {
+  "description": "Sends a prompt to the LLM and returns the generated natural language response.",
+  "import_path": "tools.llm_response.llm_response",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "prompt": {
+        "type": "string",
+        "description": "Instruction or context to send to the LLM."
+      }
+    },
+    "required": ["prompt"]
+  }
+},
+
+
 "aggregate_file_content": {
   "description": "Combines multiple file contents from prior steps for summarization.",
   "import_path": "tools.aggregate_file_content.aggregate_file_content",

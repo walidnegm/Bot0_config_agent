@@ -34,11 +34,16 @@ def format_file_metadata(file_path):
 
 def display_result(result):
     tool = result.get("tool", "Unknown Tool")
+    status = result.get("status", "ok")
+    
+    # Skip normal read_file messages unless there's an error
+    if tool == "read_file" and status == "ok":
+        return
+
     message = result.get("message", "")
     print(f"\n\033[1m🔧 Tool:\033[0m {tool}")
     print(f"\033[1m🗨️  Message:\033[0m {message}")
 
-    # Check inside result.result for file-related fields
     result_payload = result.get("result")
     if isinstance(result_payload, dict):
         for field in ("matches", "files", "results"):
@@ -51,7 +56,10 @@ def display_result(result):
         for k, v in result_payload.items():
             if k in {"matches", "files", "results"}:
                 continue
-            print(f"📌 {k}: {v}")
+            if isinstance(v, str) and len(v) > 500:
+                print (f"📌 {k}: (truncated {len(v)} characters)")
+            else:
+                print(f"📌 {k}: {v}")
 
 
 def run_agent_loop(use_openai=False):

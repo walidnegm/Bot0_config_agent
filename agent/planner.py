@@ -43,12 +43,14 @@ class Planner:
             extracted_json = self._extract_json_from_response(llm_output)
             print("\n[Planner] ✅ Extracted JSON array:\n", extracted_json)
 
-            if extracted_json.strip() == "[]":
-                print("[Planner] 🤖 No tool call. Checking for intent fallback…")
-                intent = classify_describe_only(instruction)
+            intent = classify_describe_only(instruction, use_openai=self.use_openai)
+            if extracted_json.strip() == "[]" or intent == "describe_project":
                 if intent == "describe_project":
                     print("[Planner] 🧠 Intent = describe_project → injecting filtered file summary plan.")
                     return self._build_filtered_project_summary_plan()
+
+
+
 
                 print("[Planner] 🤷 No matched intent. Falling back to natural response.")
                 answer = llm_openai.generate(instruction) if self.use_openai else self.llm_manager.generate(instruction)
@@ -109,7 +111,7 @@ class Planner:
         plan.append({
             "tool": "llm_response",
             "params": {
-                "prompt": "Summarize this project: <prev_output>"
+                "prompt": "Give a concise summary of the project based on the following files:\n\n<prev_output>\n\nHighlight purpose, key components, and usage."
             }
         })
 
