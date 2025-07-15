@@ -41,15 +41,13 @@ def display_result(result):
     tool = result.get("tool", "Unknown Tool")
     status = result.get("status", "ok")
 
-    if tool == "read_file" and status == "ok":
+    # Skip noisy tools
+    if tool in {"read_file", "aggregate_file_content", "llm_response"} and status == "ok":
         return
 
     message = result.get("message", "")
-    if tool in {"llm_response", "aggregate_file_content"} and isinstance(message, str) and len(message) > 300:
-        message = f"[{tool} output truncated: {len(message)} characters]"
-
-    print(f"\n{bold('🔧 Tool:')} {tool}")
-    print(f"{bold('🗨️  Message:')} {message}")
+    print(f"\n🔧 Tool: {tool}")
+    print(f"🗨️  Message: {message}")
 
     result_payload = result.get("result")
     if isinstance(result_payload, dict):
