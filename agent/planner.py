@@ -40,6 +40,17 @@ class Planner:
         try:
             extracted_json = self._extract_json_from_response(llm_output)
             print("\n[Planner] ✅ Extracted JSON array:\n", extracted_json)
+            
+
+            if extracted_json.strip() == "[]":
+                print("[Planner] 🤖 No tool call. Generating natural language response.")
+                answer = llm_openai.generate(instruction) if self.use_openai else self.llm_manager.generate(instruction)
+                return [{
+                    "tool": "llm_response",
+                    "status": "ok",
+                    "message": answer,
+                    "result": {"text": answer}
+                }]
 
             raw_tool_calls = json.loads(extracted_json)
 

@@ -9,30 +9,6 @@
   }
 },
 
-  "talk_llm": {
-    "description": "Send a prompt to the local LLaMA model with optional persona and temperature.",
-    "import_path": "tools.ask_llm.talk_llm",
-    "parameters": {
-      "type": "object",
-      "properties": {
-        "query": {
-          "type": "string",
-          "description": "The prompt or question to ask the LLM."
-        },
-        "role": {
-          "type": "string",
-          "description": "The assistant persona to use: 'helper', 'copilot', 'ops', or 'qa'.",
-          "default": "helper"
-        },
-        "temperature": {
-          "type": "number",
-          "description": "Sampling temperature for output randomness.",
-          "default": 0.2
-        }
-      },
-      "required": ["query"]
-    }
-  },
   "seed_parser": {
     "description": "Parses plaintext files into key-value pairs.",
     "import_path": "tools.seed_parser.seed_parser",

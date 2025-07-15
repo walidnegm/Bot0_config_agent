@@ -98,20 +98,4 @@ class LLMManager:
             raise
 
 
-# Shared instance
-_llm = LLMManager()
-
-def ask_llm(prompt: str, temperature: float = 0.0, role: str = None) -> str:
-    system_prompt = {
-        "copilot": "You are GitHub Copilot, a helpful developer assistant.",
-        "ops": "You are an infrastructure and DevOps expert.",
-        "qa": "You are a strict QA tester reviewing behavior and stability.",
-        "helper": "You are a friendly and clear technical assistant."
-    }.get(role, "You are a helpful assistant.")
-
-    return _llm.generate(
-        prompt=prompt,
-        temperature=temperature,
-        system_prompt=system_prompt
-    )
 
