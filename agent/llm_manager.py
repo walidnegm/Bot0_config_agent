@@ -70,7 +70,10 @@ class LLMManager:
             else prompt
         )
 
-        print(f"[LLMManager] Full prompt:\n{repr(full_prompt)}\n")
+        # print(f"[LLMManager] Full prompt:\n{repr(full_prompt)}\n")
+        lines = full_prompt.splitlines()
+        truncated_prompt = "\n".join(lines[:10])
+        print(f"[LLMManager] Full prompt (first 10 lines):\n{truncated_prompt}\n")
 
         try:
             inputs = self.tokenizer(full_prompt, return_tensors="pt").to(
