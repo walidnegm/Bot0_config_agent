@@ -20,7 +20,7 @@ To Run the CLI
 --------------
 cd ~/../Bot0_config_agent
 python -m agent.cli --once "where are my model files" --openai ~/projects/Bot0_config_agent
-python -m agent.cli --once "where are my python files in agents dir" --openai
+python -m agent.cli --once "where are my python files in agent dir" --openai
 
 
 Step-by-Step Sequence (High-level)

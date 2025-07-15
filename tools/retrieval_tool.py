@@ -8,7 +8,7 @@ SECRET_KEYWORDS = ["token", "key", "secret", "pass", "auth"]
 def is_secret(k):
     return any(x in k.lower() for x in SECRET_KEYWORDS)
 
-def summarize_config(**kwargs):
+def retrieval_tool(**kwargs):
     summary = []
 
     config_like = {
