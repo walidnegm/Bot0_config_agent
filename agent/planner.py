@@ -1,9 +1,11 @@
 import json
+import os
 import re
 from typing import Dict, Any, List
 from pydantic import BaseModel, ValidationError
 from tools.tool_registry import ToolRegistry
 from agent import llm_openai  # OpenAI used only if enabled
+from agent.intent_classifier_core import classify_describe_only
 
 
 class ToolCall(BaseModel):
@@ -28,7 +30,7 @@ class Planner:
         print("[Planner] 🔧 Retrieved tools:", tools)
 
         prompt = self._build_prompt(instruction, tools)
-        print("\n[PromptBuilder] 🧾 Prompt:\n" + prompt)
+        print("\n[PromptBuilder] 📜 Prompt:\n" + prompt)
 
         if self.use_openai:
             llm_output = llm_openai.generate(prompt)
@@ -40,10 +42,15 @@ class Planner:
         try:
             extracted_json = self._extract_json_from_response(llm_output)
             print("\n[Planner] ✅ Extracted JSON array:\n", extracted_json)
-            
 
             if extracted_json.strip() == "[]":
-                print("[Planner] 🤖 No tool call. Generating natural language response.")
+                print("[Planner] 🤖 No tool call. Checking for intent fallback…")
+                intent = classify_describe_only(instruction)
+                if intent == "describe_project":
+                    print("[Planner] 🧠 Intent = describe_project → injecting filtered file summary plan.")
+                    return self._build_filtered_project_summary_plan()
+
+                print("[Planner] 🤷 No matched intent. Falling back to natural response.")
                 answer = llm_openai.generate(instruction) if self.use_openai else self.llm_manager.generate(instruction)
                 return [{
                     "tool": "llm_response",
@@ -53,7 +60,6 @@ class Planner:
                 }]
 
             raw_tool_calls = json.loads(extracted_json)
-
             validated_calls: List[ToolCall] = []
             for i, item in enumerate(raw_tool_calls):
                 try:
@@ -71,6 +77,43 @@ class Planner:
         except Exception as e:
             print("\n[Planner] ❌ Failed to parse tools JSON:\n", repr(llm_output))
             raise ValueError(f"❌ Failed to parse tools JSON: {e}")
+
+    def _build_filtered_project_summary_plan(self) -> List[Dict[str, Any]]:
+        files_to_read = []
+        for root, _, files in os.walk("."):
+            if any(skip in root for skip in ["venv", "__pycache__", "models"]):
+                continue
+            for fname in files:
+                if not fname.endswith((".py", ".md", ".toml")):
+                    continue
+                fpath = os.path.join(root, fname)
+                try:
+                    if os.path.getsize(fpath) <= 10_000:
+                        files_to_read.append(fpath)
+                except OSError:
+                    continue
+
+        files_to_read = sorted(files_to_read)[:5]
+
+        plan = []
+        step_refs = []
+        for idx, fpath in enumerate(files_to_read):
+            plan.append({"tool": "read_file", "params": {"path": fpath}})
+            step_refs.append(f"<step_{idx}>")
+
+        plan.append({
+            "tool": "aggregate_file_content",
+            "params": {"steps": step_refs}
+        })
+
+        plan.append({
+            "tool": "llm_response",
+            "params": {
+                "prompt": "Summarize this project: <prev_output>"
+            }
+        })
+
+        return plan
 
     def _build_prompt(self, instruction, tools):
         tool_descriptions = []
@@ -106,62 +149,18 @@ class Planner:
             "Do NOT include Markdown formatting, comments, code blocks (no ```), or labels like \"json\".\n"
             "Just return the raw JSON array.\n\n"
             "If no tool is relevant, return an empty array: []\n\n"
-            "For multi-step tasks, return multiple tool calls in sequence. You may refer to previous tool outputs using the string \"<prev_output>\".\n\n"
+            "For multi-step tasks, return multiple tool calls in sequence. You may refer to previous tool outputs using the string \"<prev_output>\" or \"<step_n>\".\n\n"
             "💡 Tip: If the instruction involves finding or listing files, follow up with the `echo_message` tool to clearly show the matched files to the user.\n\n"
-            "Examples:\n\n"
-            "Search by keywords:\n"
-            "[\n"
-            "  {\n"
-            "    \"tool\": \"find_file_by_keyword\",\n"
-            "    \"params\": {\n"
-            "      \"keywords\": [\"llama\", \"model\"]\n"
-            "    }\n"
-            "  },\n"
-            "  {\n"
-            "    \"tool\": \"echo_message\",\n"
-            "    \"params\": {\n"
-            "      \"message\": \"<prev_output>\"\n"
-            "    }\n"
-            "  }\n"
-            "]\n\n"
-            "List all files:\n"
-            "[\n"
-            "  {\n"
-            "    \"tool\": \"list_project_files\",\n"
-            "    \"params\": {\n"
-            "      \"root\": \".\"\n"
-            "    }\n"
-            "  },\n"
-            "  {\n"
-            "    \"tool\": \"echo_message\",\n"
-            "    \"params\": {\n"
-            "      \"message\": \"<prev_output>\"\n"
-            "    }\n"
-            "  }\n"
-            "]\n\n"
-            "Echo a previous result:\n"
-            "[\n"
-            "  {\n"
-            "    \"tool\": \"list_project_files\",\n"
-            "    \"params\": {\n"
-            "      \"root\": \".\"\n"
-            "    }\n"
-            "  },\n"
-            "  {\n"
-            "    \"tool\": \"echo_message\",\n"
-            "    \"params\": {\n"
-            "      \"message\": \"<prev_output>\"\n"
-            "    }\n"
-            "  }\n"
-            "]\n\n"
             f"Instruction: {instruction}"
         )
         return prompt
 
     def _extract_json_from_response(self, text: str) -> str:
         text = text.strip().replace("```json", "").replace("```", "")
-        matches = re.findall(r'\[\s*\{.*?\}\s*\]', text, re.DOTALL)
+        if text == "[]":
+            return "[]"
 
+        matches = re.findall(r'\[\s*\{.*?\}\s*\]', text, re.DOTALL)
         for match in matches:
             try:
                 parsed = json.loads(match)

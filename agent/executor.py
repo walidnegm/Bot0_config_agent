@@ -1,4 +1,4 @@
-# agent/executor.py
+# ✅ Updated ToolExecutor with step-by-step result tracking and named references
 
 from tools.tool_registry import ToolRegistry
 
@@ -8,7 +8,8 @@ class ToolExecutor:
 
     def execute_plan(self, plan: list, dry_run: bool = False) -> list:
         results = []
-        prev_output = None  # Track last output for <prev_output> substitution
+        prev_output = None
+        step_outputs = {}  # 🧠 new: track outputs as step_i → result
 
         if not isinstance(plan, list):
             return [{
@@ -46,19 +47,22 @@ class ToolExecutor:
                 })
                 continue
 
-            # 🔁 Replace <prev_output> with stringified value or extracted field
             resolved_params = {}
             for k, v in params.items():
-                if isinstance(v, str) and "<prev_output>" in v:
-                    if isinstance(prev_output, dict):
-                        # Prefer the 'message' field if present
-                        resolved_val = str(prev_output.get("message", prev_output))
-                    else:
-                        resolved_val = str(prev_output)
+                if isinstance(v, str):
+                    if "<prev_output>" in v:
+                        if isinstance(prev_output, dict):
+                            resolved_val = str(prev_output.get("message", prev_output))
+                        else:
+                            resolved_val = str(prev_output)
+                        v = v.replace("<prev_output>", resolved_val)
 
-                    resolved_params[k] = v.replace("<prev_output>", resolved_val)
-                else:
-                    resolved_params[k] = v
+                    for ref_idx in range(i):
+                        ref_token = f"<step_{ref_idx}>"
+                        if ref_token in v and f"step_{ref_idx}" in step_outputs:
+                            v = v.replace(ref_token, str(step_outputs[f"step_{ref_idx}"]))
+
+                resolved_params[k] = v
 
             if dry_run:
                 results.append({
@@ -88,7 +92,8 @@ class ToolExecutor:
                 }
 
                 results.append(result)
-                prev_output = result["result"]  # Store result for next step
+                prev_output = result["result"]
+                step_outputs[f"step_{i}"] = prev_output  # ✅ store output for <step_i> references
 
             except Exception as e:
                 results.append({

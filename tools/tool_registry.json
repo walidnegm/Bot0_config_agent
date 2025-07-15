@@ -9,6 +9,40 @@
   }
 },
 
+"aggregate_file_content": {
+  "description": "Combines multiple file contents from prior steps for summarization.",
+  "import_path": "tools.aggregate_file_content.aggregate_file_content",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "steps": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "List of step references (e.g., ['<step_0>', '<step_1>'])"
+      }
+    },
+    "required": ["steps"]
+  }
+},
+
+
+"read_file": {
+  "description": "Reads the contents of a specified file and returns it as a string.",
+  "import_path": "tools.read_file.read_file",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "path": {
+        "type": "string",
+        "description": "Path to the file to read"
+      }
+    },
+    "required": ["path"]
+  }
+},
+
   "seed_parser": {
     "description": "Parses plaintext files into key-value pairs.",
     "import_path": "tools.seed_parser.seed_parser",
