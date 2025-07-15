@@ -62,7 +62,10 @@ class LLMManager:
             if system_prompt else prompt
         )
 
-        print(f"[LLMManager] Full prompt:\n{repr(full_prompt)}\n")
+        #print(f"[LLMManager] Full prompt:\n{repr(full_prompt)}\n")
+        lines = full_prompt.splitlines()
+        truncated_prompt = "\n".join(lines[:10])
+        print(f"[LLMManager] Full prompt (first 10 lines):\n{truncated_prompt}\n")
 
         try:
             inputs = self.tokenizer(full_prompt, return_tensors="pt").to(self.model.device)
@@ -77,16 +80,20 @@ class LLMManager:
                 )
 
             full_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
-
-            print(f"[LLMManager] Full decoded output:\n{repr(full_text)}\n")
+            
+            lines = full_text.splitlines()
+            truncated_text = "\n".join(lines[:10])
+            print(f"[LLMManager] Full prompt (first 10 lines):\n{truncated_text}\n")
+ 
+            #print(f"[LLMManager] Full decoded output:\n{repr(full_text)}\n")
 
             if full_text.startswith(full_prompt):
                 generated_text = full_text[len(full_prompt):].strip()
             else:
-                print("⚠️ [LLMManager] Prompt prefix not found. Returning full decoded text.")
+                #print("⚠️ [LLMManager] Prompt prefix not found. Returning full decoded text.")
                 generated_text = full_text
 
-            print(f"[LLMManager] 🧪 Generated text before return:\n{repr(generated_text)}\n")
+            #print(f"[LLMManager] 🧪 Generated text before return:\n{repr(generated_text)}\n")
 
             if not isinstance(generated_text, str):
                 raise ValueError(f"Generated output is not a string: {type(generated_text)}")
