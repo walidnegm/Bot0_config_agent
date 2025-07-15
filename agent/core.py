@@ -11,7 +11,7 @@ class AgentCore:
         self.registry = ToolRegistry()
         self.planner = Planner(use_openai=use_openai)
         self.executor = ToolExecutor()
-        print("[AgentCore] ✅ Initialization complete.")
+        print(f"[AgentCore] ✅ Initialization complete (LLM: {'OpenAI' if use_openai else 'Local'})")
 
     def handle_instruction(self, instruction: str) -> list:
         print(f"\n🧠 [AgentCore] Received instruction:\n  → {instruction}")

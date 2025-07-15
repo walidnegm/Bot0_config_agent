@@ -32,17 +32,24 @@ def format_file_metadata(file_path):
         return [file_path, "?", "?"]
 
 
+USE_COLOR = True  # Set to False if piping output or in unsupported terminals
+
+def bold(text):
+    return f"\033[1m{text}\033[0m" if USE_COLOR else text
+
 def display_result(result):
     tool = result.get("tool", "Unknown Tool")
     status = result.get("status", "ok")
-    
-    # Skip normal read_file messages unless there's an error
+
     if tool == "read_file" and status == "ok":
         return
 
     message = result.get("message", "")
-    print(f"\n\033[1m🔧 Tool:\033[0m {tool}")
-    print(f"\033[1m🗨️  Message:\033[0m {message}")
+    if tool in {"llm_response", "aggregate_file_content"} and isinstance(message, str) and len(message) > 300:
+        message = f"[{tool} output truncated: {len(message)} characters]"
+
+    print(f"\n{bold('🔧 Tool:')} {tool}")
+    print(f"{bold('🗨️  Message:')} {message}")
 
     result_payload = result.get("result")
     if isinstance(result_payload, dict):
@@ -50,14 +57,14 @@ def display_result(result):
             items = result_payload.get(field)
             if isinstance(items, list) and items:
                 rows = [format_file_metadata(path) for path in items]
-                print(f"\n📁 \033[1m{field.capitalize()}:\033[0m")
+                print(f"\n📁 {bold(field.capitalize())}:")
                 print(tabulate(rows, headers=["Path", "Size", "Created"], tablefmt="fancy_grid"))
 
         for k, v in result_payload.items():
             if k in {"matches", "files", "results"}:
                 continue
             if isinstance(v, str) and len(v) > 500:
-                print (f"📌 {k}: (truncated {len(v)} characters)")
+                print(f"📌 {k}: (truncated {len(v)} characters)")
             else:
                 print(f"📌 {k}: {v}")
 

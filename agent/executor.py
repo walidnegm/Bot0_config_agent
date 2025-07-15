@@ -19,7 +19,7 @@ class ToolExecutor:
             }]
 
         for i, step in enumerate(plan):
-            print(f"[Executor] Step {i}: {step} (type: {type(step).__name__})")
+            # print(f"[Executor] Step {i}: {step} (type: {type(step).__name__})")
 
             if not isinstance(step, dict):
                 results.append({

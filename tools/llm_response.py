@@ -1,21 +1,21 @@
-# tools/llm_response.py
-import os
+def llm_response(**kwargs):
+    prompt = kwargs.get("prompt", "")
+    if not prompt:
+        return {"status": "error", "message": "Missing prompt"}
 
-def llm_response(prompt: str) -> dict:
-    from agent import llm_openai
     from agent.llm_manager import LLMManager
+    llm = LLMManager()
 
     try:
-        use_openai = bool(int(os.getenv("USE_OPENAI", "0")))
-        response = llm_openai.generate(prompt) if use_openai else LLMManager().generate(prompt)
+        response = llm.generate(prompt=prompt.strip(), temperature=0.1)
         return {
             "status": "ok",
             "message": response,
-            "result": {"text": response}
+            "result": response
         }
     except Exception as e:
         return {
             "status": "error",
-            "message": str(e)
+            "message": f"LLM error: {e}"
         }
 
