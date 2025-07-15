@@ -1,0 +1,32 @@
+models:
+  - name: Qwen3-4B  # base model only; ideally, should be Qwen3-4B-Instruct, but cannot find a quantized version
+    id: Qwen/Qwen3-4B-AWQ
+    quantization: AWQ
+    license: Apache-2.0
+  - name: Qwen3-1.7B-Instruct
+    id: kaitchup/Qwen3-1.7B-autoround-4bit-gptq
+    quantization: GPTQ
+    license: Apache-2.0
+  - name: Deepseek-Coder-1.3B-Instruct  # for coding only
+    id: TheBloke/deepseek-coder-1.3b-instruct-GPTQ
+    quantization: GPTQ
+    license: Apache-2.0
+  - name: Phi-3.5-mini-instruct
+    id: thesven/Phi-3.5-mini-instruct-awq
+    quantization: AWQ
+    license: MIT
+  - name: Gemma-2-2B-it
+    id: shuyuej/gemma-2-2b-it-GPTQ
+    quantization: GPTQ
+    license: Apache-2.0
+  - name: Llama-3.2-3B-Instruct
+    id: shuyuej/Llama-3.2-3B-Instruct-GPTQ
+    quantization: GPTQ
+    license: Llama-3.2 (research)
+  - name: Llama-2-7B-Chat   # not laptop friendly
+    id: TheBloke/Llama-2-7B-Chat-GPTQ
+    quantization: GPTQ
+    license: Llama-3.2 (research)
+  - name: Llama-3-8B-Instruct # full size model, not quantized; not laptop friendly
+    id: "meta-llama/Meta-Llama-3-8B-Instruct"
+    license: Llama-3.2 (research)

@@ -188,8 +188,6 @@ def hello_tool(**kwargs):
 ---
 ## Local LLM Models
 
----
-
 ### Hardware Requirements: Desktops/Towers
 
 **Recommended models:**
@@ -200,7 +198,7 @@ def hello_tool(**kwargs):
 
 ### More Laptop-Friendly Choices
 
-As **8GB dedicated VRAM is the de facto upper limit for most of today’s gaming laptops**, we recommend **4-bit quantized small models** from Alibaba, Google, Meta, and Microsoft to achieve the best balance of speed, performance, quality, ease of use, and cost—**without running out of memory (OOM)**.
+As **8GB dedicated VRAM is the de facto upper limit for most of today’s gaming laptops**, we recommend **4-bit quantized small models** from Alibaba, Alphabet, Deepseek, Meta, and Microsoft to achieve the best balance of speed, performance, quality, ease of use, and cost—**without running out of memory (OOM)**.
 
 - Best suited for laptops with **4GB–8GB dedicated VRAM**
 - **GPTQ** and **AWQ quantization** are state-of-the-art methods that preserve most of the full-size model’s quality, though they are slightly more complex to implement.
@@ -211,12 +209,46 @@ As **8GB dedicated VRAM is the de facto upper limit for most of today’s gaming
 
 ---
 
+---
 
-| Model                           | Parameters | Quantization | VRAM (GB) | Overall Quality vs. Mid-Size Unquantized Models         | Ease of Installation        | License                                 |
-| ------------------------------- | ---------- | ------------ | --------- | ----------------------------------- | --------------------------- | --------------------------------------- |
-| **Qwen3-4B-Instruct-GPTQ-Int4** | 4B         | GPTQ 4-bit   | 2.5–4     | Comparable, strong reasoning/coding | High (gptqmodel, Ollama)    | Apache 2.0                              |
-| **Qwen3-1.7B-Instruct-AWQ**     | 1.7B       | AWQ 4-bit    | 1.5–2.5   | Lower, good for simple tasks        | High (vLLM, Ollama)         | Apache 2.0                              |
-| **Gemma-2-2B-it-GPTQ**          | 2B         | GPTQ 4-bit   | 1.5–2.5   | Slightly below, efficient           | High (gptqmodel, Ollama)    | Apache 2.0                              |
-| **Phi-3.5-mini-instruct-AWQ**   | 3.8B       | AWQ 4-bit    | 2.5–3.5   | Comparable, excels in math/RAG      | High (vLLM, LM Studio)      | MIT                                     |
-| **Llama-3.2-3B-Instruct-GPTQ**  | 3B         | GPTQ 4-bit   | 3.5–4.5   | Comparable, efficient               | High (auto-gptq, LM Studio) | Llama-3.2 (research/limited commercial) |
+| Model                                         | Parameters | Quantization | VRAM (GB) | Overall Quality vs. Mid-Size Unquantized Models        | Ease of Installation        | License                                 |
+|-----------------------------------------------|------------|--------------|-----------|--------------------------------------------------------|----------------------------|-----------------------------------------|
+| **Qwen3-4B-AWQ**                              | 4B         | AWQ 4-bit    | 2.5–4     | strong reasoning/coding but **Not instruct/chat model**  | High (vLLM, Ollama)         | Apache 2.0                              |
+| **Qwen3-1.7B-Instruct-GPTQ**                  | 1.7B       | GPTQ 4-bit   | 1.5–2.5   | Lower, good for simple tasks                           | High (auto-gptq, Ollama)    | Apache 2.0                              |
+| **Gemma-2-2B-it-GPTQ**                        | 2B         | GPTQ 4-bit   | 1.5–2.5   | Slightly below, efficient                              | High (gptqmodel, Ollama)    | Apache 2.0                              |
+| **TheBloke/deepseek-coder-1.3b-instruct-GPTQ**| 1.3B       | GPTQ 4-bit   | 1–1.5     | Lightweight code model, surprisingly capable           | High (auto-gptq, LM Studio) | Apache 2.0                              |
+| **Phi-3.5-mini-instruct-AWQ**                 | 3.8B       | AWQ 4-bit    | 2.5–3.5   | Comparable, excels in math/RAG                         | High (vLLM, LM Studio)      | MIT                                     |
+| **Llama-3.2-3B-Instruct-GPTQ**                | 3B         | GPTQ 4-bit   | 3.5–4.5   | Comparable, efficient                                  | High (auto-gptq, LM Studio) | Llama-3.2 (research/limited commercial) |
 
+---
+
+> **Note:**  
+> `Qwen3-4B-Instruct` would be a much better choice for agents/chat, but no quantized version is currently available. You would need to manually quantize it if desired.
+
+---
+
+### How to Download & Test
+
+**All model names, IDs, licenses, etc. are in the `models.yaml` file.**
+
+**To download all models:**
+```sh
+python -m downloaders/download_all_models.py
+```
+
+**To test the GPTQ quantized models:**
+```sh
+python test_gptq_quant_models.py
+```
+---
+## How to Use Logger
+In the module,
+``` python
+import logging
+import logging_config
+
+logger = logging.getLogger(__name__)
+```
+Then you can use logger.info, logger.debug, logger.error, etc. Logging files will be automaticaly saved in logs folder.
+
+Note: you only need to import logging_config (custom .py in the project) at the entry point. Lower level modules only need to import logging.
