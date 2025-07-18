@@ -5,23 +5,11 @@ import yaml
 from dotenv import load_dotenv
 from huggingface_hub import snapshot_download
 from transformers import AutoTokenizer, AutoModelForCausalLM
+from utils.find_root_dir import find_project_root
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
-
-
-def find_project_root(
-    markers=(".git", "requirements.txt", "pyproject.toml", "README.md")
-) -> Path:
-    """Search up parent directories for a project root marker file."""
-    path = Path(__file__).resolve().parent
-    for parent in [path] + list(path.parents):
-        if any((parent / marker).exists() for marker in markers):
-            logger.info(f"🔍 Project root found: {parent}")
-            return parent
-    logger.warning("⚠️ Project root not found, using CWD.")
-    return Path.cwd()
 
 
 def load_models_yaml(yaml_path: Path) -> dict:
