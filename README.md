@@ -251,4 +251,42 @@ logger = logging.getLogger(__name__)
 ```
 Then you can use logger.info, logger.debug, logger.error, etc. Logging files will be automaticaly saved in logs folder.
 
+
 Note: you only need to import logging_config (custom .py in the project) at the entry point. Lower level modules only need to import logging.
+
+
+
+NOT ON QUANTIZED MODELS
+-----------------------
+🌀 What You Tried
+Built a Python 3.10 virtual environment to compile auto-gptq, because GPTQ quantized models failed in Python 3.12.
+
+Attempted to compile auto-gptq with CUDA support under WSL2.
+
+Resolved:
+
+Missing nvcc
+
+Missing .so symbols (e.g., ncclCommRegister)
+
+LD_LIBRARY_PATH and PATH adjustments
+
+Ultimately hit architectural compatibility issues (WSL2 / driver quirks) even after proper CUDA tooling was installed.
+
+🎯 Where You Landed
+🤝 transformers and optimum now natively support GPTQ models (e.g., TheBloke/...-GPTQ).
+
+You no longer need AutoGPTQForCausalLM or to build auto-gptq manually.
+
+AutoModelForCausalLM.from_pretrained(..., trust_remote_code=True) is enough — no more forks, no more patching, and no more fragile builds.
+
+✅ Final State
+You're back to a cleaner, stable approach:
+
+Use the mainline Hugging Face stack.
+
+One loader path.
+
+Quantized or not, same interface.
+
+No more manual compilation or unmaintained forks

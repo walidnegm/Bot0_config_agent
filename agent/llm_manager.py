@@ -2,6 +2,20 @@ from typing import Optional
 import torch
 from pathlib import Path
 from transformers import AutoTokenizer, AutoModelForCausalLM
+#from auto_gptq import AutoGPTQForCausalLM
+import json
+
+
+def get_model_config_from_config() -> dict:
+    config_path = Path(__file__).parent.parent / ".llm_config.json"
+    try:
+        with open(config_path, "r") as f:
+            config = json.load(f)
+            if "model_id" not in config:
+                raise ValueError("Missing 'model_id' in config.")
+            return config
+    except Exception as e:
+        raise FileNotFoundError(f"Failed to read model config: {e}")
 
 
 class LLMManager:
@@ -16,34 +30,32 @@ class LLMManager:
             return
 
         try:
-            print("[LLMManager] 🔍 Locating local LLaMA model…")
+            print("[LLMManager] 🔍 Locating local model…")
 
-            model_root = Path.home() / "projects/Bot0_config_agent/model"
-            snapshot_base = (
-                model_root
-                / "models--meta-llama--Meta-Llama-3-8B-Instruct"
-                / "snapshots"
-            )
-            candidates = list(snapshot_base.glob("*"))
+            config = get_model_config_from_config()
+            model_id = config["model_id"]
+            loader = config.get("loader", "auto").lower()
+            device = config.get("device", "auto")
+            torch_dtype = config.get("torch_dtype", "float16")
+            use_safetensors = config.get("use_safetensors", False)
 
-            if not candidates:
-                raise FileNotFoundError(
-                    f"No model snapshot found under: {snapshot_base}"
-                )
+            if device == "auto":
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+            dtype = getattr(torch, torch_dtype, torch.float16)
 
-            model_path = candidates[0]
-            print(f"[LLMManager] ✅ Using model path: {model_path}")
+            print(f"[LLMManager] ✅ Using model: {model_id} ({loader}) on {device}")
 
             self.tokenizer = AutoTokenizer.from_pretrained(
-                model_path, use_fast=False, local_files_only=True
+                model_id, use_fast=False, local_files_only=True
             )
 
             self.model = AutoModelForCausalLM.from_pretrained(
-                model_path,
+                model_id,
                 device_map="auto",
-                torch_dtype=torch.float16,
-                local_files_only=True,
-            )
+                torch_dtype=dtype,
+                trust_remote_code=True,
+                local_files_only=True
+                )
 
             self.eos = self.tokenizer.eos_token_id
             print("[LLMManager] 🚀 Model loaded successfully.")
@@ -70,7 +82,6 @@ class LLMManager:
             else prompt
         )
 
-        # print(f"[LLMManager] Full prompt:\n{repr(full_prompt)}\n")
         lines = full_prompt.splitlines()
         truncated_prompt = "\n".join(lines[:10])
         print(f"[LLMManager] Full prompt (first 10 lines):\n{truncated_prompt}\n")
@@ -96,7 +107,7 @@ class LLMManager:
             print(f"[LLMManager] Full decoded output:\n{repr(full_text)}\n")
 
             if full_text.startswith(full_prompt):
-                generated_text = full_text[len(full_prompt) :].strip()
+                generated_text = full_text[len(full_prompt):].strip()
             else:
                 print(
                     "⚠️ [LLMManager] Prompt prefix not found. Returning full decoded text."
@@ -117,3 +128,4 @@ class LLMManager:
         except Exception as e:
             print(f"❌ [LLMManager] Generation failed: {e}")
             raise
+

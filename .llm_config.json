@@ -1,0 +1,7 @@
+{
+  "model_id": "/home/walid/projects/Bot0_config_agent/downloaders/model/tinyllama",
+  "loader": "gptq",
+  "device": "auto",
+  "use_safetensors": true
+}
+
