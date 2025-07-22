@@ -3,6 +3,12 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+
+# Ignore GGUF model files
+*.gguf
+# Ignore cache directories
+.cache/
+
 # C extensions
 *.so
 model/

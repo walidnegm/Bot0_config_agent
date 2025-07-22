@@ -1,0 +1,6 @@
+{
+  "model_id": "./tinyllama-gptq",
+  "loader": "gptq",
+  "device": "auto",
+  "use_safetensors": true
+}

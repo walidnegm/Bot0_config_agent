@@ -26,6 +26,10 @@ class Planner:
             self.llm_manager = LLMManager()
 
     def plan(self, instruction: str):
+        system_msg = (
+           "You are a precise tool-calling agent. Return only a JSON array of tool calls, "
+           "without any preamble, explanation, or other text. If no tools apply, return []."
+            )
         tools = self.tool_registry.get_all()
         print("[Planner] 🔧 Retrieved tools:", tools)
 
@@ -35,7 +39,7 @@ class Planner:
         if self.use_openai:
             llm_output = llm_openai.generate(prompt)
         else:
-            llm_output = self.llm_manager.generate(prompt)
+            llm_output = self.llm_manager.generate(prompt, system_prompt=system_msg)
 
         print("\n[Planner] 📤 LLM raw response:\n" + repr(llm_output))
 
