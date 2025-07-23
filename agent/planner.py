@@ -23,13 +23,14 @@ class Planner:
         else:
             print("[Planner] ⚙️ Using local model")
             from agent.llm_manager import LLMManager  # only if local model is used
+
             self.llm_manager = LLMManager()
 
     def plan(self, instruction: str):
         system_msg = (
-           "You are a precise tool-calling agent. Return only a JSON array of tool calls, "
-           "without any preamble, explanation, or other text. If no tools apply, return []."
-            )
+            "You are a precise tool-calling agent. Return only a JSON array of tool calls, "
+            "without any preamble, explanation, or other text. If no tools apply, return []."
+        )
         tools = self.tool_registry.get_all()
         print("[Planner] 🔧 Retrieved tools:", tools)
 
@@ -50,20 +51,27 @@ class Planner:
             intent = classify_describe_only(instruction, use_openai=self.use_openai)
             if extracted_json.strip() == "[]" or intent == "describe_project":
                 if intent == "describe_project":
-                    print("[Planner] 🧠 Intent = describe_project → injecting filtered file summary plan.")
+                    print(
+                        "[Planner] 🧠 Intent = describe_project → injecting filtered file summary plan."
+                    )
                     return self._build_filtered_project_summary_plan()
 
-
-
-
-                print("[Planner] 🤷 No matched intent. Falling back to natural response.")
-                answer = llm_openai.generate(instruction) if self.use_openai else self.llm_manager.generate(instruction)
-                return [{
-                    "tool": "llm_response",
-                    "status": "ok",
-                    "message": answer,
-                    "result": {"text": answer}
-                }]
+                print(
+                    "[Planner] 🤷 No matched intent. Falling back to natural response."
+                )
+                answer = (
+                    llm_openai.generate(instruction)
+                    if self.use_openai
+                    else self.llm_manager.generate(instruction)
+                )
+                return [
+                    {
+                        "tool": "llm_response",
+                        "status": "ok",
+                        "message": answer,
+                        "result": {"text": answer},
+                    }
+                ]
 
             raw_tool_calls = json.loads(extracted_json)
             validated_calls: List[ToolCall] = []
@@ -107,17 +115,16 @@ class Planner:
             plan.append({"tool": "read_file", "params": {"path": fpath}})
             step_refs.append(f"<step_{idx}>")
 
-        plan.append({
-            "tool": "aggregate_file_content",
-            "params": {"steps": step_refs}
-        })
+        plan.append({"tool": "aggregate_file_content", "params": {"steps": step_refs}})
 
-        plan.append({
-            "tool": "llm_response",
-            "params": {
-                "prompt": "Give a concise summary of the project based on the following files:\n\n<prev_output>\n\nHighlight purpose, key components, and usage."
+        plan.append(
+            {
+                "tool": "llm_response",
+                "params": {
+                    "prompt": "Give a concise summary of the project based on the following files:\n\n<prev_output>\n\nHighlight purpose, key components, and usage."
+                },
             }
-        })
+        )
 
         return plan
 
@@ -133,29 +140,32 @@ class Planner:
             elif name == "list_project_files":
                 usage_hint = " Use this to list all files in a folder."
 
-            tool_descriptions.append(f"- {name}({param_desc}): {meta['description']}.{usage_hint}")
+            tool_descriptions.append(
+                f"- {name}({param_desc}): {meta['description']}.{usage_hint}"
+            )
 
         tools_block = "\n".join(tool_descriptions)
 
         prompt = (
             "You are a precise tool-calling agent. You have access to the following tools:\n\n"
-            + tools_block + "\n\n"
+            + tools_block
+            + "\n\n"
             "Your ONLY output must be a single valid JSON array of objects, without any preamble or explanation.\n\n"
             "Format strictly as follows:\n"
             "[\n"
             "  {\n"
-            "    \"tool\": \"tool_name\",\n"
-            "    \"params\": {\n"
-            "      \"arg1\": \"value1\",\n"
-            "      \"arg2\": \"value2\"\n"
+            '    "tool": "tool_name",\n'
+            '    "params": {\n'
+            '      "arg1": "value1",\n'
+            '      "arg2": "value2"\n'
             "    }\n"
             "  },\n"
             "  ...\n"
             "]\n\n"
-            "Do NOT include Markdown formatting, comments, code blocks (no ```), or labels like \"json\".\n"
+            'Do NOT include Markdown formatting, comments, code blocks (no ```), or labels like "json".\n'
             "Just return the raw JSON array.\n\n"
             "If no tool is relevant, return an empty array: []\n\n"
-            "For multi-step tasks, return multiple tool calls in sequence. You may refer to previous tool outputs using the string \"<prev_output>\" or \"<step_n>\".\n\n"
+            'For multi-step tasks, return multiple tool calls in sequence. You may refer to previous tool outputs using the string "<prev_output>" or "<step_n>".\n\n'
             "💡 Tip: If the instruction involves finding or listing files, follow up with the `echo_message` tool to clearly show the matched files to the user.\n\n"
             f"Instruction: {instruction}"
         )
@@ -166,14 +176,15 @@ class Planner:
         if text == "[]":
             return "[]"
 
-        matches = re.findall(r'\[\s*\{.*?\}\s*\]', text, re.DOTALL)
+        matches = re.findall(r"\[\s*\{.*?\}\s*\]", text, re.DOTALL)
         for match in matches:
             try:
                 parsed = json.loads(match)
-                if isinstance(parsed, list) and all("tool" in x and "params" in x for x in parsed):
+                if isinstance(parsed, list) and all(
+                    "tool" in x and "params" in x for x in parsed
+                ):
                     return json.dumps(parsed)
             except Exception:
                 continue
 
         raise ValueError("No valid JSON array of tool calls found in LLM response.")
-

@@ -290,3 +290,34 @@ One loader path.
 Quantized or not, same interface.
 
 No more manual compilation or unmaintained forks
+
+---
+## Depedencies
+How to install gptqmodel:
+pip install --no-build-isolation gptqmodel
+---
+
+## 🔧 Using LLMManager
+
+The `LLMManager` class loads a quantized model (GPTQ, GGUF, or AWQ) and exposes a `.generate()` method for local inference.
+
+It expects a `models.yaml` config file like this:
+
+```yaml
+gptq_llama:
+  model_path: models/llama2-7b-gptq
+  loader: gptq
+  torch_dtype: float16
+  temperature: 0.7
+```
+Example Usage:
+```
+from agent.llm_manager import LLMManager
+
+# Load a model named 'gptq_llama' from models.yaml
+llm = LLMManager(model_name="gptq_llama")
+
+# Call the model to generate a tool-calling JSON
+response = llm.generate("summarize the config files")
+print(response)
+```

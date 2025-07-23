@@ -9,7 +9,7 @@ models:
     dtype: float16
     device_map: auto
     license: Apache-2.0
-    default_temperature: 1.0
+    temperature: 1.0
     temp_range: [0.0, 2.0]
     prompt_style: chatml
     system_prompt: "You are a helpful assistant."
@@ -21,7 +21,7 @@ models:
     dtype: float16
     device_map: auto
     license: Apache-2.0
-    default_temperature: 1.0
+    temperature: 1.0
     temp_range: [0.0, 2.0]
     prompt_style: chatml
     system_prompt: "You are a helpful assistant."
@@ -33,7 +33,7 @@ models:
     dtype: float16
     device_map: auto
     license: Apache-2.0
-    default_temperature: 0.8
+    temperature: 0.8
     temp_range: [0.0, 1.0]
     prompt_style: alpaca
     system_prompt: "You are a smart coding assistant."
@@ -45,7 +45,7 @@ models:
     dtype: float16
     device_map: auto
     license: MIT
-    default_temperature: 0.9
+    temperature: 0.9
     temp_range: [0.0, 1.0]
     prompt_style: phi
     system_prompt: "You are a concise and clear assistant."
@@ -57,7 +57,7 @@ models:
     dtype: float16
     device_map: auto
     license: Apache-2.0
-    default_temperature: 0.8
+    temperature: 0.8
     temp_range: [0.0, 1.0]
     prompt_style: gemma
     system_prompt: "You are a friendly AI helper."
@@ -69,7 +69,7 @@ models:
     dtype: float16
     device_map: auto
     license: Llama-3.2 (research)
-    default_temperature: 0.5
+    temperature: 0.5
     temp_range: [0.0, 1.0]
     prompt_style: llama3
     system_prompt: "You are a helpful assistant."
@@ -81,7 +81,7 @@ models:
     dtype: float16
     device_map: auto
     license: Llama-3.2 (research)
-    default_temperature: 0.5
+    temperature: 0.5
     temp_range: [0.0, 1.0]
     prompt_style: llama2
     system_prompt: "You are a helpful assistant."
@@ -93,7 +93,7 @@ models:
     dtype: float16
     device_map: auto
     license: Llama-3.2 (research)
-    default_temperature: 0.2
+    temperature: 0.2
     temp_range: [0.0, 1.0]
     prompt_style: llama3
     system_prompt: "You are a helpful assistant."

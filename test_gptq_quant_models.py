@@ -60,7 +60,7 @@ def test_model(model_id: str, prompt: str):
             **inputs, max_new_tokens=256, do_sample=True, temperature=0.7, top_p=0.9
         )
         answer = tokenizer.decode(outputs[0], skip_special_tokens=True)
-        print(f"\nMODEL OUTPUT for {model_id}:\n{answer}")
+        logger.info(f"\nMODEL OUTPUT for {model_id}:\n{answer}")
 
 
 def main():
@@ -77,25 +77,28 @@ def main():
     # model_to_test = "Qwen3-1.7B-Instruct" # Tested and works
     # model_to_test = "Deepseek-Coder-1.3B-Instruct" # tested and works
     # model_to_test = "Gemma-2-2B-it" # tested and works, but very slow with VRAM <= 4GB
-    model_to_test = "Llama-3.2-3B-Instruct"
+    model_to_test = "llama_3_2_3b"
 
-    model = next(
-        (m for m in models_config["models"] if m["name"] == model_to_test), None
-    )
+    # Nested structure: extract actual models dict
+    models = models_config.get("models", {})
+    model = models.get(model_to_test)
+
     if model is None:
-        logger.error(f"❌ Model '{model_to_test}' not found in YAML.")
+        logger.error(
+            f"❌ Model '{model_to_test}' not found in YAML. Available models: {list(models.keys())}"
+        )
         return
 
-    model_id = model["id"]
+    model_path = model["model_path"]
     quant = model.get("quantization", "")
-    logger.info(f"Model to test: {model_id}")
+    logger.info(f"Model to test: {model_path}")
 
     # Only test GPTQ models for now
     if "gptq" in quant.lower():
-        logger.info(f"\n=== Testing model: {model['name']} ({model_id}) ===")
-        test_model(model_id, prompt)
+        logger.info(f"\n=== Testing model: {model_to_test} ({model_path}) ===")
+        test_model(model_path, prompt)
     else:
-        logger.info(f"\n--- Skipping {model['name']} (not GPTQ) ---")
+        logger.info(f"\n--- Skipping {model_to_test} (not GPTQ) ---")
 
 
 if __name__ == "__main__":

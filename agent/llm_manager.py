@@ -2,6 +2,7 @@ from typing import Optional
 import torch
 from pathlib import Path
 from transformers import AutoTokenizer, AutoModelForCausalLM
+from llama_cpp import Llama
 import json
 import re
 
@@ -52,7 +53,9 @@ class LLMManager:
                 model_path = root_dir / model_id
             model_path = str(model_path.resolve())
 
-            print(f"[LLMManager] ✅ Using model: {model_path} ({self.loader}) on {device}")
+            print(
+                f"[LLMManager] ✅ Using model: {model_path} ({self.loader}) on {device}"
+            )
 
             if self.loader == "gptq":
                 self.tokenizer = AutoTokenizer.from_pretrained(
@@ -65,13 +68,12 @@ class LLMManager:
                     trust_remote_code=False,
                     local_files_only=True,
                     safe_serialization=use_safetensors,
-                    revision="main"
+                    revision="main",
                 )
                 # Set pad_token_id to eos_token_id if not set
                 if self.tokenizer.pad_token_id is None:
                     self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
             elif self.loader == "gguf":
-                from llama_cpp import Llama
                 # Set n_gpu_layers to -1 for full GPU offload if CUDA is available, else 0 for CPU
                 n_gpu_layers = -1 if device == "cuda" else 0
                 self.model = Llama(
@@ -79,7 +81,7 @@ class LLMManager:
                     n_gpu_layers=n_gpu_layers,
                     n_ctx=4096,  # Increased context length
                     chat_format="zephyr",  # Match TinyLlama-Chat's format
-                    verbose=True  # Enable detailed logs for CUDA debugging
+                    verbose=True,  # Enable detailed logs for CUDA debugging
                 )
                 self.tokenizer = self.model  # Use Llama's built-in tokenizer
             else:
@@ -102,11 +104,14 @@ class LLMManager:
             )
 
         # Use a concise system prompt for TinyLlama
-        system_prompt = system_prompt or "Return only a valid JSON array of tool calls, like [{\"tool\": \"tool_name\", \"params\": {}}]. No explanations or extra text."
+        system_prompt = (
+            system_prompt
+            or 'Return only a valid JSON array of tool calls, like [{"tool": "tool_name", "params": {}}]. No explanations or extra text.'
+        )
 
         messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt}
+            {"role": "user", "content": prompt},
         ]
 
         # Log messages for debugging
@@ -119,7 +124,9 @@ class LLMManager:
                     if system_prompt
                     else prompt
                 )
-                inputs = self.tokenizer(full_prompt, return_tensors="pt").to(self.device)
+                inputs = self.tokenizer(full_prompt, return_tensors="pt").to(
+                    self.device
+                )
                 with torch.no_grad():
                     outputs = self.model.generate(
                         **inputs,
@@ -134,7 +141,7 @@ class LLMManager:
 
                 # Extract generated text (remove prompt if present)
                 if full_text.startswith(full_prompt):
-                    generated_text = full_text[len(full_prompt):].strip()
+                    generated_text = full_text[len(full_prompt) :].strip()
                 else:
                     print(
                         "⚠️ [LLMManager] Prompt prefix not found. Returning full decoded text."
@@ -147,16 +154,18 @@ class LLMManager:
                     max_tokens=max_new_tokens,
                     temperature=0.0,  # Strict determinism
                     top_p=0.85,  # Tighter sampling
-                    stop=["</s>"]  # Model's EOS token
+                    stop=["</s>"],  # Model's EOS token
                 )
-                generated_text = output['choices'][0]['message']['content'].strip()
+                generated_text = output["choices"][0]["message"]["content"].strip()
 
                 # Strict JSON extraction
-                json_match = re.search(r'\[\s*\{.*?\}\s*\]', generated_text, re.DOTALL)
+                json_match = re.search(r"\[\s*\{.*?\}\s*\]", generated_text, re.DOTALL)
                 if json_match:
                     generated_text = json_match.group(0)
                 else:
-                    print(f"[LLMManager] ⚠️ No JSON array found in output: {generated_text}")
+                    print(
+                        f"[LLMManager] ⚠️ No JSON array found in output: {generated_text}"
+                    )
                     return "[]"  # Fallback to empty array
 
             else:

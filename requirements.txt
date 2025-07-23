@@ -6,6 +6,7 @@ annotated-types==0.7.0
 anyio==4.9.0
 astroid==3.3.10
 attrs==25.3.0
+autoawq==0.2.9
 autopep8==2.3.2
 bitsandbytes==0.46.1
 black==25.1.0
@@ -17,6 +18,7 @@ click-default-group==1.2.4
 datasets==4.0.0
 device-smi==0.4.1
 dill==0.4.0
+diskcache==5.6.3
 distro==1.9.0
 faiss-cpu==1.11.0
 filelock==3.18.0
@@ -36,6 +38,7 @@ isort==6.0.1
 jinja2==3.1.6
 jiter==0.10.0
 joblib==1.5.1
+llama-cpp-python==0.3.14
 logbar==0.0.4
 logging==0.4.9.6
 markupsafe==3.0.2
@@ -115,3 +118,4 @@ tzdata==2025.2
 urllib3==2.5.0
 xxhash==3.5.0
 yarl==1.20.1
+zstandard==0.23.0
