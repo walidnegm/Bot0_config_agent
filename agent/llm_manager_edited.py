@@ -1,4 +1,21 @@
 """
+LLMManager: Unified interface to load and run local quantized LLMs (GPTQ, GGUF, AWQ).
+
+Supported loaders:
+- GPTQ (via gptqmodel)
+- GGUF (via llama.cpp)
+- AWQ (via autoawq)
+
+Loads model configuration from `models.yaml`. Example structure:
+
+```yaml
+gptq_llama:
+  model_path: models/llama2-7b-gptq
+  loader: gptq
+  torch_dtype: float16
+  temperature: 0.7
+
+* Note:
 GGUF (General-purpose quantized format for efficient inference of large language models
 on devices with limited resources, with suffix .gguf):
 A binary format designed for efficient inference of transformer models, particularly large
@@ -11,14 +28,24 @@ AWQ (Activation-aware Weight Quantization): A quantization method that protects 
 based on activation distribution, preserving model quality while reducing model size and improving
 inference efficiency.
 
-* Changes to make:
+* Changed make:
 * - add awq
 * - use models.yaml
 * - use the gptq load (use gptqmodel lib, not autoawq)
+* - separated loader / loaders for each loader type (awq, gguf, gptq)
+* - seperated generate / generate for each loader type (awq, gguf, gptq)
 
+Example Usage:
+    >>> from agent.llm_manager import LLMManager
+
+        # Load a model named 'gptq_llama' from models.yaml
+        llm = LLMManager(model_name="gptq_llama")
+
+        # Call the model to generate a tool-calling JSON
+        response = llm.generate("summarize the config files")
+        print(response)
 """
 
-# * Changes to make here:
 import logging
 from typing import Optional, Literal, Dict, Any, Union
 from pathlib import Path
