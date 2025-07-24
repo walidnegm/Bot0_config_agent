@@ -1,6 +1,7 @@
 {
-  "model_id": "/home/walid/.cache/huggingface/hub/models--TheBloke--TinyLlama-1.1B-Chat-v1.0-GGUF/snapshots/52e7645ba7c309695bec7ac98f4f005b139cf465/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
-  "loader": "gguf",
+  "model_id": "LiquidAI/LFM2-1.2B",
+  "loader": "safetensors",
   "device": "auto",
-  "use_safetensors": false
+  "torch_dtype": "bfloat16",
+  "use_safetensors": true
 }

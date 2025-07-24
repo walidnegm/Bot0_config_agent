@@ -40,8 +40,7 @@ class Planner:
         if self.use_openai:
             llm_output = llm_openai.generate(prompt)
         else:
-            llm_output = self.llm_manager.generate(prompt, system_prompt=system_msg)
-
+            llm_output = self.llm_manager.generate(prompt, system_prompt=system_msg, max_new_tokens=512, temperature=0.0)
         print("\n[Planner] 📤 LLM raw response:\n" + repr(llm_output))
 
         try:

@@ -1,0 +1,7 @@
+{
+  "model_id": "/home/walid/.cache/huggingface/hub/models--meta-llama--Meta-Llama-3-8B-Instruct/snapshots/8afb486c1db24fe5011ec46dfbe5b5dccdb575c2",
+  "loader": "safetensors",
+  "device": "cuda",
+  "use_safetensors": true,
+  "torch_dtype": "float16"
+}
