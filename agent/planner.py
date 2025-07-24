@@ -4,7 +4,7 @@ import re
 from typing import Dict, Any, List
 from pydantic import BaseModel, ValidationError
 from tools.tool_registry import ToolRegistry
-from agent import llm_openai  # OpenAI used only if enabled
+from agent import llm_openai
 from agent.intent_classifier_core import classify_describe_only
 
 
@@ -17,69 +17,124 @@ class Planner:
     def __init__(self, use_openai: bool = False):
         self.tool_registry = ToolRegistry()
         self.use_openai = use_openai
-
         if self.use_openai:
             print("[Planner] ⚙️ Using OpenAI backend")
         else:
             print("[Planner] ⚙️ Using local model")
             from agent.llm_manager import LLMManager  # only if local model is used
-
             self.llm_manager = LLMManager()
-
-    def plan(self, instruction: str):
+            
+        self.param_aliases = {
+            "file_path": "path",
+            "filename": "path",
+            "filepath": "path"
+        }
+    
+    def plan(self, instruction: str) -> List[Dict[str, Any]]:
+        instruction = instruction.strip()
         system_msg = (
-            "You are a precise tool-calling agent. Return only a JSON array of tool calls, "
-            "without any preamble, explanation, or other text. If no tools apply, return []."
+            "Return a valid JSON array of tool calls. "
+            "Format: [{ \"tool\": \"tool_name\", \"params\": { ... } }]. "
+            "The key must be 'tool' (not 'call'), and 'tool' must be one of: "
+            "summarize_config, llm_response, aggregate_file_content, read_file, seed_parser, "
+            "make_virtualenv, list_project_files, echo_message, retrieval_tool, locate_file, find_file_by_keyword. "
+            "Use exactly the parameter names shown in the tool spec. For example: use \"path\" (not \"file_path\") for read_file. "
+            "For general knowledge or definitions, return []. Do NOT invent new tool names or use placeholders like 'path/to/file'. "
+            "If a file must be found first, use `list_project_files` or `find_file_by_keyword` first, then refer to their output."
         )
+        
         tools = self.tool_registry.get_all()
-        print("[Planner] 🔧 Retrieved tools:", tools)
-
         prompt = self._build_prompt(instruction, tools)
         print("\n[PromptBuilder] 📜 Prompt:\n" + prompt)
+        # print("[Planner] 🔧 Retrieved tools:", self.tool_registry.get_all())
 
-        if self.use_openai:
+        if self.use_openai:   
             llm_output = llm_openai.generate(prompt)
         else:
-            llm_output = self.llm_manager.generate(prompt, system_prompt=system_msg, max_new_tokens=512, temperature=0.0)
+            llm_output = self.llm_manager.generate(
+                prompt, system_prompt=system_msg, max_new_tokens=512, temperature=0.0
+            )
+
+        if isinstance(llm_output, dict):
+            llm_output = llm_output.get("text") or llm_output.get("output") or ""
+
         print("\n[Planner] 📤 LLM raw response:\n" + repr(llm_output))
 
         try:
-            extracted_json = self._extract_json_from_response(llm_output)
+            if self.use_openai:
+                extracted_json = llm_output.strip()  # OpenAI already returns clean JSON
+            else:
+                extracted_json = self._extract_json_from_response(llm_output)
+
             print("\n[Planner] ✅ Extracted JSON array:\n", extracted_json)
-
-            intent = classify_describe_only(instruction, use_openai=self.use_openai)
-            if extracted_json.strip() == "[]" or intent == "describe_project":
-                if intent == "describe_project":
-                    print(
-                        "[Planner] 🧠 Intent = describe_project → injecting filtered file summary plan."
-                    )
-                    return self._build_filtered_project_summary_plan()
-
-                print(
-                    "[Planner] 🤷 No matched intent. Falling back to natural response."
-                )
-                answer = (
-                    llm_openai.generate(instruction)
-                    if self.use_openai
-                    else self.llm_manager.generate(instruction)
-                )
-                return [
-                    {
-                        "tool": "llm_response",
-                        "status": "ok",
-                        "message": answer,
-                        "result": {"text": answer},
-                    }
-                ]
 
             raw_tool_calls = json.loads(extracted_json)
             validated_calls: List[ToolCall] = []
+
             for i, item in enumerate(raw_tool_calls):
+                tool_name = item.get("tool")
+                params = item.get("params", {})
+                for old_key, new_key in self.param_aliases.items():
+                    if old_key in params and new_key not in params:
+                        params[new_key] = params.pop(old_key)
+                # 🔧 FIX BAD PARAMS: Remove unexpected ones
+                
+                valid_keys = set(
+                    self.tool_registry.tools.get(tool_name, {})
+                        .get("parameters", {})
+                        .get("properties", {})
+                        .keys()
+                        )
+                
+                params = {k: v for k, v in params.items() if k in valid_keys}
+                
+                if tool_name not in self.tool_registry.tools or not valid_keys:
+                    print(f"[Planner] ⚠️ Unknown tool or invalid schema: {tool_name}")
+                    return [{"tool": "llm_response", "params": {"prompt": instruction}}]
+                
+                # Auto-fix common bad param
+                if tool_name == "list_project_files" and "files" in params and "root" not in params:
+                    print("[Planner] ⚠️ Auto-rewriting 'files' param to 'root'")
+                    params["root"] = "."
+                    del params["files"]
+
+
+                placeholder_path = params.get("path", "")
+                if any(kw in str(placeholder_path) for kw in ["path/to", "your_", "placeholder"]):
+                    print(f"[Planner] ⚠️ Placeholder path '{placeholder_path}' detected.")
+                    return [
+                        {"tool": "find_file_by_keyword", "params": {"keywords": ["python"], "root": "."}},
+                        {"tool": "echo_message", "params": {"message": "<prev_output>"}}
+                    ]
+
+                if any("path/to/" in str(v) or "your/" in str(v) for v in params.values()):
+                    print(f"[Planner] ⚠️ Placeholder detected → rewriting to find_file_by_keyword + echo_message.")
+                    return [
+                        {"tool": "find_file_by_keyword", "params": {"keywords": ["python", "py"], "root": "."}},
+                        {"tool": "echo_message", "params": {"message": "<prev_output>"}}
+                    ]
+
+                item["params"] = params
+                print(f"[Planner] 🔄 Normalized call {i}: {item}")
+
                 try:
                     validated = ToolCall(**item)
+                    if validated.tool not in self.tool_registry.tools:
+                        print(f"[Planner] ⚠️ Invalid tool: {validated.tool}. Falling back to llm_response.")
+                        return [{"tool": "llm_response", "params": {"prompt": instruction}}]
                     validated_calls.append(validated)
                 except ValidationError as ve:
                     print(f"[Planner] ❌ Validation error in item {i}:\n{ve}\n")
+                    return [{"tool": "llm_response", "params": {"prompt": instruction}}]
+
+            intent = classify_describe_only(instruction, use_openai=self.use_openai)
+            if extracted_json.strip() == "[]" or intent == "describe_project" or not validated_calls:
+                if intent == "describe_project":
+                    print("[Planner] 🧠 Intent = describe_project → injecting filtered file summary plan.")
+                    return self._build_filtered_project_summary_plan()
+
+                print("[Planner] 🤷 No valid tools matched. Using llm_response.")
+                return [{"tool": "llm_response", "params": {"prompt": instruction}}]
 
             print("\n[Planner] 🔍 Final planned tools:")
             for call in validated_calls:
@@ -88,8 +143,8 @@ class Planner:
             return [call.dict() for call in validated_calls]
 
         except Exception as e:
-            print("\n[Planner] ❌ Failed to parse tools JSON:\n", repr(llm_output))
-            raise ValueError(f"❌ Failed to parse tools JSON: {e}")
+            print(f"[Planner] ❌ Failed to parse tools JSON: {e}\n")
+            return [{"tool": "llm_response", "params": {"prompt": instruction}}]
 
     def _build_filtered_project_summary_plan(self) -> List[Dict[str, Any]]:
         files_to_read = []
@@ -115,15 +170,15 @@ class Planner:
             step_refs.append(f"<step_{idx}>")
 
         plan.append({"tool": "aggregate_file_content", "params": {"steps": step_refs}})
-
-        plan.append(
-            {
-                "tool": "llm_response",
-                "params": {
-                    "prompt": "Give a concise summary of the project based on the following files:\n\n<prev_output>\n\nHighlight purpose, key components, and usage."
-                },
+        plan.append({
+            "tool": "llm_response",
+            "params": {
+                "prompt": (
+                    "Give a concise summary of the project based on the following files:\n\n"
+                    "<prev_output>\n\nHighlight purpose, key components, and usage."
+                )
             }
-        )
+        })
 
         return plan
 
@@ -132,23 +187,17 @@ class Planner:
         for name, meta in tools.items():
             params = meta["parameters"]["properties"]
             param_desc = ", ".join([f"{k}: {v['type']}" for k, v in params.items()])
-
             usage_hint = ""
             if name == "find_file_by_keyword":
                 usage_hint = " Use this for vague file searches like 'llama', 'model', 'snapshot'."
             elif name == "list_project_files":
                 usage_hint = " Use this to list all files in a folder."
-
-            tool_descriptions.append(
-                f"- {name}({param_desc}): {meta['description']}.{usage_hint}"
-            )
+            tool_descriptions.append(f"- {name}({param_desc}): {meta['description']}.{usage_hint}")
 
         tools_block = "\n".join(tool_descriptions)
-
         prompt = (
-            "You are a precise tool-calling agent. You have access to the following tools:\n\n"
-            + tools_block
-            + "\n\n"
+            f"You are a precise tool-calling agent. You have access to the following tools:\n\n"
+            f"{tools_block}\n\n"
             "Your ONLY output must be a single valid JSON array of objects, without any preamble or explanation.\n\n"
             "Format strictly as follows:\n"
             "[\n"
@@ -171,19 +220,57 @@ class Planner:
         return prompt
 
     def _extract_json_from_response(self, text: str) -> str:
-        text = text.strip().replace("```json", "").replace("```", "")
-        if text == "[]":
-            return "[]"
-
-        matches = re.findall(r"\[\s*\{.*?\}\s*\]", text, re.DOTALL)
-        for match in matches:
+        def is_valid_tool_array(candidate) -> bool:
             try:
-                parsed = json.loads(match)
-                if isinstance(parsed, list) and all(
-                    "tool" in x and "params" in x for x in parsed
-                ):
-                    return json.dumps(parsed)
+                parsed = json.loads(candidate)
+                return (
+                    isinstance(parsed, list)
+                    and all(isinstance(x, dict) and "tool" in x and "params" in x for x in parsed)
+                )
             except Exception:
-                continue
+                return False
+        # 💡 For debugging: show full text before any cleanup
+        print("[Planner] 🧪 Full LLM response:\n", repr(text))
 
+        # Step 1: Strip special tokens and markdown remnants
+        text = text.replace("<|startoftext|>", "") 
+
+        # Step 2: Extract only the assistant's last message
+        matches = re.findall(r"<\|im_start\|>assistant(?:\n|\r|\r\n)(.*?)(?:\n)?<\|im_end\|>", text, flags=re.DOTALL)
+        if matches:
+            text = matches[-1].strip()
+        else:
+            # Fallback: try extracting the first valid-looking JSON array
+            print("[Planner] ⚠️ No assistant block found — trying raw JSON fallback.")
+            json_candidates = re.findall(r"\[\s*\{.*?\}\s*\]", text, flags=re.DOTALL)
+            for candidate in json_candidates:
+                try:
+                    json.loads(candidate)
+                    return candidate
+                except Exception:
+                    continue
+            raise ValueError("No valid assistant response found.")
+
+        # Step 3: Drop anything before first `[`
+        bracket_idx = text.find("[")
+        if bracket_idx != -1:
+            text = text[bracket_idx:]
+
+
+        # Step 4: Try parsing the full block as JSON
+        try:
+            if is_valid_tool_array(text):
+                return text
+            else:
+                print("[Planner] ❌ Top-level block is not a valid tool array.")
+        except Exception as e:
+            print(f"[Planner] ⚠️ Error while checking top-level tool array: {e}")
+
+     # Step 5: Try fallback via regex match for any JSON array
+        regex_matches = re.findall(r"\[\s*\{[\s\S]*?\}\s*(?:,\s*\{[\s\S]*?\}\s*)*]", text)
+        for match in regex_matches:
+            if is_valid_tool_array(match):
+                return match
+
+        print("[Planner] ❌ No valid JSON tool array found in LLM response.")
         raise ValueError("No valid JSON array of tool calls found in LLM response.")

@@ -4,6 +4,7 @@ import json
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from tools.tool_registry import ToolRegistry
+from llama_cpp import Llama
 
 
 def get_model_config() -> dict:
@@ -20,17 +21,21 @@ def get_model_config() -> dict:
 
 
 class ToolExecutor:
-    def __init__(self):
+    def __init__(self, use_openai: bool = False):
         self.registry = ToolRegistry()
+        self.use_openai = use_openai
         self.model = None
         self.tokenizer = None
         self.is_lfm2 = False
         self.loader = None
         self.device = None
 
-        # Load model config and initialize model/tokenizer
+
+        if self.use_openai:
+            print("[Executor] ⚠️ Skipping local model load — using OpenAI backend.")
+            return  # 🚫 Skip loading local model
+        
         try:
-            print("[Executor] 🔍 Initializing model for raw completions…")
             config = get_model_config()
             model_id = config["model_id"]
             self.loader = config.get("loader", "auto").lower()
@@ -74,7 +79,6 @@ class ToolExecutor:
                 if self.tokenizer.pad_token_id is None:
                     self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
             elif self.loader == "gguf":
-                from llama_cpp import Llama
                 n_gpu_layers = -1 if device == "cuda" else 0
                 self.model = Llama(
                     model_path=model_path,
@@ -146,6 +150,110 @@ class ToolExecutor:
                 })
                 continue
 
-            # Check if tool exists in registry
             if tool_name not in self.registry.tools:
-                print(f"[Executor] ⚠️ Invalid tool: {
+                print(f"[Executor] ⚠️ Invalid tool: {tool_name}. Falling back to raw chat completion.")
+                return self.fallback_raw_completion(prompt, max_new_tokens)
+
+            resolved_params = {}
+            for k, v in params.items():
+                if isinstance(v, str):
+                    if "<prev_output>" in v:
+                        if isinstance(prev_output, dict):
+                            resolved_val = str(prev_output.get("message", prev_output))
+                        else:
+                            resolved_val = str(prev_output)
+                        v = v.replace("<prev_output>", resolved_val)
+
+                    for ref_idx in range(i):
+                        ref_token = f"<step_{ref_idx}>"
+                        if ref_token in v and f"step_{ref_idx}" in step_outputs:
+                            v = v.replace(ref_token, str(step_outputs[f"step_{ref_idx}"]))
+
+                resolved_params[k] = v
+
+            if dry_run:
+                results.append({
+                    "tool": tool_name,
+                    "status": "dry_run",
+                    "params": resolved_params,
+                    "message": "Tool not executed (dry run mode)"
+                })
+                continue
+
+            try:
+                tool_fn = self.registry.get_function(tool_name)
+                output = tool_fn(**resolved_params)
+
+                if not isinstance(output, dict):
+                    output = {
+                        "result": output,
+                        "status": "ok",
+                        "message": ""
+                    }
+
+                if "status" not in output:
+                    output["status"] = "ok"
+
+                print(f"[Executor] ✅ Tool '{tool_name}' succeeded with status: {output['status']}")  
+                result = {
+                    "tool": tool_name,
+                    "status": output.get("status", "ok"),
+                    "message": output.get("message", ""),
+                    "result": output.get("result", output)
+                }
+
+                results.append(result)
+                prev_output = result["result"]
+                step_outputs[f"step_{i}"] = prev_output
+
+            except Exception as e:
+                print(f"[Executor] ❌ Tool {tool_name} failed: {e}. Falling back to raw chat completion.")
+                return self.fallback_raw_completion(prompt, max_new_tokens)
+        
+        if not results or all(r["status"] != "ok" for r in results):
+            print("[Executor] No valid tools executed. Falling back to raw chat completion.")
+            return self.fallback_raw_completion(prompt, max_new_tokens)
+
+        return results
+
+    def fallback_raw_completion(self, prompt: str, max_new_tokens: int) -> List[Dict[str, Any]]:
+        """Fallback to raw chat completion for non-tool queries, model-specific."""
+        print("[Executor] Performing raw chat completion")
+        if self.use_openai:
+            from agent.llm_openai import generate
+            print("[Executor] 🔄 Using OpenAI for raw completion")
+            try:
+                response = generate(prompt, temperature=0.3)
+                return [{
+                    "tool": "[openai_raw_completion]",
+                    "status": "ok",
+                    "message": response,
+                    "result": response
+                }]
+            except Exception as e:
+                return [{
+                    "tool": "[openai_raw_completion]",
+                    "status": "error",
+                    "message": str(e)
+                }]
+
+        else:
+            print("[Executor] 🔄 Using LOCAL model for fallback")
+
+            # Load LLMManager only if it wasn't passed into the constructor
+            from agent.llm_manager import LLMManager
+            local_llm = LLMManager(use_openai=False)
+        try:
+            response = local_llm.generate(prompt, temperature=0.3)
+            return [{
+                "tool": "[local_raw_completion]",
+                "status": "ok",
+                "message": response,
+                "result": response
+            }]
+        except Exception as e:
+            return [{
+                "tool": "[local_raw_completion]",
+                "status": "error",
+                "message": str(e)
+            }]

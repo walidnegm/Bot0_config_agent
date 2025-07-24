@@ -5,8 +5,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from huggingface_hub import snapshot_download, scan_cache_dir
 import json
 import re
-from llama_cpp import Llama, LlamaGrammar
-
+from llama_cpp import Llama
 
 def get_model_config_from_config() -> dict:
     config_path = Path(__file__).parent.parent / ".llm_config.json"
@@ -148,13 +147,16 @@ class LLMManager:
     ) -> str:
         if self.use_openai:
             raise RuntimeError("LLMManager is in OpenAI mode — local generation is disabled.")
-
-        system_prompt = system_prompt or (
-            "Return a valid JSON array of tool calls from this list: "
-            "summarize_config, llm_response, aggregate_file_content, read_file, seed_parser, "
-            "make_virtualenv, list_project_files, echo_message, retrieval_tool, locate_file, find_file_by_keyword. "
-            "If no tool applies, return []. No explanations or extra text."
-        )
+        
+        system_prompt = (
+            "Return a valid JSON array of tool calls. Format: "
+            '[{ "tool": "tool_name", "params": { ... } }]. '
+            "The key must be 'tool' (not 'call'), and 'tool' must be one of: "
+            "summarize_config, llm_response, aggregate_file_content, read_file, "
+            "seed_parser, make_virtualenv, list_project_files, echo_message, "
+            "retrieval_tool, locate_file, find_file_by_keyword. "
+            "Do NOT invent new tool names. For general knowledge or definitions, return []."
+            )
 
         messages = [
             {"role": "system", "content": system_prompt},

@@ -91,15 +91,12 @@ def run_agent_loop(use_openai=False):
 
 def main():
     parser = argparse.ArgumentParser(description="Agent-powered CLI for natural language instructions")
-    parser.add_argument("--once", type=str, help="Run once with a single instruction")
+    parser.add_argument("--once", type=str, help="Run once with a single instruction", nargs=argparse.REMAINDER)
     parser.add_argument("--openai", action="store_true", help="Use OpenAI GPT backend instead of local model")
     args = parser.parse_args()
-    if args.openai:
-        os.environ["USE_OPENAI"] = "true"
-    else:
-        os.environ.pop("USE_OPENAI", None)
+
     if args.once:
-        instruction = args.once.strip()  # ← no need for " ".join()
+        instruction = " ".join(args.once).strip()
         agent = AgentCore(use_openai=args.openai)
         try:
             results = agent.handle_instruction(instruction)
@@ -109,6 +106,7 @@ def main():
             print(f"❌ Error: {e}")
     else:
         run_agent_loop(use_openai=args.openai)
+
 
 if __name__ == "__main__":
     main()

@@ -10,7 +10,7 @@ class AgentCore:
         print("[AgentCore] 🔧 Initializing ToolRegistry, Planner, and Executor…")
         self.registry = ToolRegistry()
         self.planner = Planner(use_openai=use_openai)
-        self.executor = ToolExecutor()
+        self.executor = ToolExecutor(use_openai=use_openai)
         print(f"[AgentCore] ✅ Initialization complete (LLM: {'OpenAI' if use_openai else 'Local'})")
 
     def handle_instruction(self, instruction: str) -> list:
@@ -22,7 +22,7 @@ class AgentCore:
             print("[AgentCore] ✅ Plan generated.")
 
             print("[AgentCore] 🚀 Executing plan:")
-            results = self.executor.execute_plan(plan)
+            results = self.executor.execute_plan(plan, instruction)
             print("[AgentCore] ✅ Execution complete.")
             return results
 
