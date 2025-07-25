@@ -52,47 +52,54 @@ from pathlib import Path
 import re
 import json
 import torch
-import yaml
-from transformers import AutoTokenizer, PreTrainedTokenizerBase
+from transformers import AutoTokenizer, PreTrainedTokenizerBase, AutoModelForCausalLM
 from llama_cpp import Llama
 from gptqmodel import GPTQModel  # Ensure GPTQModel is installed or available
 from awq import AutoAWQForCausalLM
+from loaders.model_config_models import (
+    BaseHFModelConfig,
+    GGUFModelConfig,
+    ModelConfigEntry,
+)
+from utils.find_root_dir import find_project_root
 
 logger = logging.getLogger(__name__)
 
+try:
+    root_dir = find_project_root()
+except Exception as e:
+    raise FileNotFoundError(
+        "❌ Could not determine project root. Make sure one of the expected markers exists \
+(e.g., .git, requirements.txt, pyproject.toml, README.md)."
+    ) from e
 
-ModelLoaderType = Literal["gptq", "gguf", "awq"]
+ModelLoaderType = Literal["awq", "gptq", "gguf", "transformers"]
 
 
 def load_model_config(
-    model_name: str, yaml_path: Optional[Path] = None
-) -> Dict[str, Any]:
+    model_name: str, json_path: Optional[Path] = None
+) -> ModelConfigEntry:
     """
-    Load model configuration from a YAML file.
+    Load model configuration from models_configs.json.
 
     Args:
-        model_name (str): model name in models.yaml file.
-        yaml_path (Optional[Path]): Path to the YAML config.
-            Defaults to models.yaml in project root.
+        model_name (str): Model key in models_configs.json.
+        json_path (Optional[Path]): Path to the JSON config file.
+            Defaults to models_configs.json in project root.
 
     Returns:
-        Dict[str, Any]: Parsed config dictionary.
-
-    Raises:
-        FileNotFoundError: If the file cannot be found or parsed.
-        ValueError: If required fields are missing.
+        Dict[str, Any]: Flattened model config with loader and parameters.
     """
-    config_path = yaml_path or (Path(__file__).parent.parent / "models.yaml")
+    config_path = json_path or find_project_root() / "loaders" / "models_configs.json"
     try:
         with open(config_path, "r") as f:
-            all_configs = yaml.safe_load(f)
+            all_configs = json.load(f)
         if model_name not in all_configs:
             raise ValueError(f"Model name '{model_name}' not found in {config_path}")
-
-        logger.info(f"model config ({config_path}) loaded.")
+        logger.info(f"✅ Model config for '{model_name}' loaded from {config_path}")
         return all_configs[model_name]
     except Exception as e:
-        raise FileNotFoundError(f"Failed to load model config from {config_path}: {e}")
+        raise FileNotFoundError(f"Failed to load config from {config_path}: {e}")
 
 
 class LLMManager:
@@ -118,108 +125,119 @@ class LLMManager:
             return
 
         model_name = model_name or "default"
-        config = load_model_config(model_name)
-        self.loader = config.get("loader", "auto").lower()  # type: ignore
-        self.device = config.get(
-            "device", "cuda" if torch.cuda.is_available() else "cpu"
-        )
+        entry = load_model_config(model_name)
+        self.loader = entry.loader
+        config: BaseHFModelConfig | GGUFModelConfig = entry.config
+
+        logger.info(f"[LLMManager] 📦 Initializing model: {model_name} ({self.loader})")
+
         self._load_model(config)
 
-    def _load_gptq_model(self, model_path: Path, dtype: torch.dtype) -> None:
+    def _load_awq_model(self, config: BaseHFModelConfig) -> None:
+        """
+        Load an AWQ quantized model from a BaseHFModelConfig.
+
+        Args:
+            config (BaseHFModelConfig): AWQ config as a Pydantic model.
+        """
+        loader_kwargs = config.model_dump(exclude={"model_id"})  # exclude positional
+
+        self.model = AutoAWQForCausalLM.from_quantized(config.model_id, **loader_kwargs)
+
+        # Tokenizer loaded separately (not handled by from_quantized)
+        tokenizer = AutoTokenizer.from_pretrained(config.model_id, use_fast=True)
+        if tokenizer.pad_token_id is None:
+            tokenizer.pad_token_id = tokenizer.eos_token_id
+        self.tokenizer = tokenizer
+
+    def _load_gptq_model(self, config: BaseHFModelConfig) -> None:
         """
         Load a GPTQ quantized model.
 
         Args:
-            model_path (Path): Path to the GPTQ model directory.
-            dtype (torch.dtype): Data type to use for inference.
+            config (BaseHFModelConfig): GPTQ config as a Pydantic model.
         """
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            str(model_path), use_fast=True, local_files_only=True
-        )
-        self.model = GPTQModel.from_quantized(
-            str(model_path),
-            device_map="auto",
-            torch_dtype=dtype,
-            local_files_only=True,
-        )
-        assert isinstance(
-            self.tokenizer, PreTrainedTokenizerBase
-        )  # Ensure it's not Llama tokenizer
-        if self.tokenizer.pad_token_id is None:
-            self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
+        loader_kwargs = config.model_dump(exclude={"model_id"})  # exclude positional
 
-    def _load_gguf_model(self, model_path: Path) -> None:
+        self.model = GPTQModel.from_quantized(config.model_id, **loader_kwargs)
+
+        tokenizer = AutoTokenizer.from_pretrained(config.model_id, use_fast=True)
+        assert isinstance(
+            tokenizer, PreTrainedTokenizerBase
+        )  # Ensure it's not Llama tokenizer
+        if tokenizer.pad_token_id is None:
+            tokenizer.pad_token_id = tokenizer.eos_token_id
+        self.tokenizer = tokenizer
+
+    def _load_gguf_model(self, config: GGUFModelConfig) -> None:
         """
         Load a GGUF llama.cpp model.
 
         Args:
-            model_path (Path): Path to the GGUF model.
+            config (GGUFModelConfig): GGUF config Pydantic model.
         """
-        n_gpu_layers = -1 if self.device == "cuda" else 0
-        self.model = Llama(
-            model_path=str(model_path),
-            n_gpu_layers=n_gpu_layers,
-            n_ctx=4096,
-            chat_format="zephyr",
-            verbose=True,
-        )
+        self.model = Llama(**config.model_dump())
         self.tokenizer = self.model
 
-    def _load_awq_model(self, model_path: Path, dtype: torch.dtype) -> None:
+    def _load_transformers_model(self, config: BaseHFModelConfig) -> None:
         """
-        Load an AWQ quantized model from the given path.
+        Load a standard Transformers model from Hugging Face hub or local path.
 
         Args:
-            model_path (Path): Path to the quantized model directory.
-            dtype (torch.dtype): Torch data type to use.
+            config (BaseHFModelConfig): Transformers config as a Pydantic model.
         """
+        loader_kwargs = config.model_dump(exclude={"model_id"})
 
-        self.tokenizer = AutoTokenizer.from_pretrained(str(model_path), use_fast=True)
-        self.model = AutoAWQForCausalLM.from_quantized(
-            str(model_path), device=self.device, torch_dtype=dtype
+        self.model = AutoModelForCausalLM.from_pretrained(
+            config.model_id,
+            **loader_kwargs,
         )
 
-        if (
-            isinstance(self.tokenizer, PreTrainedTokenizerBase)
-            and self.tokenizer.pad_token_id is None
-        ):
-            self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
+        tokenizer = AutoTokenizer.from_pretrained(config.model_id, use_fast=True)
+        if tokenizer.pad_token_id is None:
+            tokenizer.pad_token_id = tokenizer.eos_token_id
+        self.tokenizer = tokenizer
 
-    def _load_model(self, config: Dict[str, Any]) -> None:
+    def _load_model(self, config: BaseHFModelConfig | GGUFModelConfig) -> None:
         """
         Load the model and tokenizer based on the config.
 
         Args:
-            config (Dict[str, Any]): Model configuration dictionary.
+            config: BaseHFModelConfig | GGUFModelConfig): Model configuration
+                pydantic model.
 
         Raises:
             ValueError: If the loader type is unsupported.
         """
-        model_path = config["model_path"]
-        torch_dtype = config.get("torch_dtype", "float16")
-        use_safetensors = config.get("use_safetensors", False)
-        dtype = getattr(torch, torch_dtype, torch.float16)
+        # Set device from config if available (BaseHFModelConfig), else infer
+        self.device = getattr(
+            config, "device", "cuda" if torch.cuda.is_available() else "cpu"
+        )
 
-        model_path = Path(model_path)
-        if not model_path.is_absolute():
-            root_dir = Path(__file__).parent.parent
-            model_path = root_dir / model_path
-        model_path = model_path.resolve()
-
-        self.device = config.get(
-            "device", "cuda" if torch.cuda.is_available() else "cpu"
+        # Get the model name for logging
+        model_name = (
+            getattr(config, "model_id", None)
+            or getattr(config, "model_path", None)
+            or "unknown"
         )
 
         logger.info(
-            f"[LLMManager] ✅ Using model: {model_path} ({self.loader}) on {self.device}"
+            f"[LLMManager] ✅ Using model: {model_name} ({self.loader}) on {self.device}"
         )
 
+        # Dispatch based on loader
         if self.loader == "gptq":
-            self._load_gptq_model(model_path, dtype)
-        elif self.loader == "gguf":
-            self._load_gguf_model(model_path)
+            assert isinstance(config, BaseHFModelConfig)
+            self._load_gptq_model(config)
         elif self.loader == "awq":
-            self._load_awq_model(model_path, dtype)
+            assert isinstance(config, BaseHFModelConfig)
+            self._load_awq_model(config)
+        elif self.loader == "transformers":
+            assert isinstance(config, BaseHFModelConfig)
+            self._load_transformers_model(config)
+        elif self.loader == "gguf":
+            assert isinstance(config, GGUFModelConfig)
+            self._load_gguf_model(config)
         else:
             raise ValueError(f"Unsupported loader: {self.loader}")
 

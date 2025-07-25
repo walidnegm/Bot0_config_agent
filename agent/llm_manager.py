@@ -7,6 +7,7 @@ import json
 import re
 from llama_cpp import Llama
 
+
 def get_model_config_from_config() -> dict:
     config_path = Path(__file__).parent.parent / ".llm_config.json"
     try:
@@ -21,18 +22,23 @@ def get_model_config_from_config() -> dict:
 
 def check_model_in_cache(model_id: str) -> bool:
     """Check if model is in Hugging Face cache, download if missing."""
-    is_repo_id = '/' in model_id and not Path(model_id).is_absolute()
+    is_repo_id = "/" in model_id and not Path(model_id).is_absolute()
     repo_id = model_id if is_repo_id else None
 
     if is_repo_id:
         cache_info = scan_cache_dir()
         for repo in cache_info.repos:
             if repo.repo_id == model_id and repo.size_on_disk > 0:
-                print(f"[LLMManager] ✅ Found {model_id} in cache (size: {repo.size_on_disk / 1e9:.2f} GB)")
+                print(
+                    f"[LLMManager] ✅ Found {model_id} in cache (size: {repo.size_on_disk / 1e9:.2f} GB)"
+                )
                 return True
         print(f"[LLMManager] ⚠️ Model {model_id} not found in cache. Downloading...")
         try:
-            snapshot_download(repo_id=model_id, allow_patterns=["*.bin", "*.safetensors", "*.json", "*.txt"])
+            snapshot_download(
+                repo_id=model_id,
+                allow_patterns=["*.bin", "*.safetensors", "*.json", "*.txt"],
+            )
             print(f"[LLMManager] ✅ Downloaded {model_id} to cache")
             return True
         except Exception as e:
@@ -70,26 +76,39 @@ class LLMManager:
             use_safetensors = config.get("use_safetensors", False)
 
             if not check_model_in_cache(model_id):
-                raise ValueError(f"Cannot proceed: Model {model_id} not found in cache or locally and download failed.")
+                raise ValueError(
+                    f"Cannot proceed: Model {model_id} not found in cache or locally and download failed."
+                )
 
             if device == "auto":
                 device = "cuda" if torch.cuda.is_available() else "cpu"
             self.device = device
-            dtype = torch.bfloat16 if model_id == "LiquidAI/LFM2-1.2B" else getattr(torch, torch_dtype, torch.float16)
+            dtype = (
+                torch.bfloat16
+                if model_id == "LiquidAI/LFM2-1.2B"
+                else getattr(torch, torch_dtype, torch.float16)
+            )
 
-            is_repo_id = '/' in model_id and not Path(model_id).is_absolute()
+            is_repo_id = "/" in model_id and not Path(model_id).is_absolute()
             model_path = model_id if is_repo_id else str(Path(model_id).resolve())
 
-            print(f"[LLMManager] ✅ Using model: {model_path} ({self.loader}) on {device}")
+            print(
+                f"[LLMManager] ✅ Using model: {model_path} ({self.loader}) on {device}"
+            )
 
             is_llama3_8b = "meta-llama/Meta-Llama-3-8B" in model_id
             self.is_lfm2 = model_id == "LiquidAI/LFM2-1.2B"
             offload_params = {}
             if is_llama3_8b:
-                offload_params = {"low_cpu_mem_usage": True, "offload_folder": "offload"}
+                offload_params = {
+                    "low_cpu_mem_usage": True,
+                    "offload_folder": "offload",
+                }
                 print("[LLMManager] Detected Llama-3-8B: Enabling CPU offloading.")
             elif self.is_lfm2:
-                print("[LLMManager] Detected LFM2-1.2B: Using bfloat16 and trust_remote_code.")
+                print(
+                    "[LLMManager] Detected LFM2-1.2B: Using bfloat16 and trust_remote_code."
+                )
 
             if self.loader == "gptq":
                 self.tokenizer = AutoTokenizer.from_pretrained(
@@ -103,7 +122,7 @@ class LLMManager:
                     local_files_only=not is_repo_id,
                     use_safetensors=use_safetensors,
                     revision="main",
-                    **offload_params
+                    **offload_params,
                 )
                 if self.tokenizer.pad_token_id is None:
                     self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
@@ -113,7 +132,7 @@ class LLMManager:
                     model_path=model_path,
                     n_gpu_layers=n_gpu_layers,
                     n_ctx=8192,
-                    verbose=True
+                    verbose=True,
                 )
                 self.tokenizer = self.model
             elif self.loader == "safetensors":
@@ -127,7 +146,7 @@ class LLMManager:
                     trust_remote_code=self.is_lfm2,
                     local_files_only=not is_repo_id,
                     use_safetensors=True,
-                    **offload_params
+                    **offload_params,
                 )
                 if self.tokenizer.pad_token_id is None:
                     self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
@@ -146,8 +165,10 @@ class LLMManager:
         system_prompt: Optional[str] = None,
     ) -> str:
         if self.use_openai:
-            raise RuntimeError("LLMManager is in OpenAI mode — local generation is disabled.")
-        
+            raise RuntimeError(
+                "LLMManager is in OpenAI mode — local generation is disabled."
+            )
+
         system_prompt = (
             "Return a valid JSON array of tool calls. Format: "
             '[{ "tool": "tool_name", "params": { ... } }]. '
@@ -156,11 +177,11 @@ class LLMManager:
             "seed_parser, make_virtualenv, list_project_files, echo_message, "
             "retrieval_tool, locate_file, find_file_by_keyword. "
             "Do NOT invent new tool names. For general knowledge or definitions, return []."
-            )
+        )
 
         messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt}
+            {"role": "user", "content": prompt},
         ]
 
         print(f"[LLMManager] Messages:\n{json.dumps(messages, indent=2)}\n")
@@ -172,22 +193,24 @@ class LLMManager:
                         messages,
                         add_generation_prompt=True,
                         return_tensors="pt",
-                        tokenize=True
+                        tokenize=True,
                     ).to(self.device)
                     with torch.no_grad():
                         outputs = self.model.generate(
-                            inputs,
-                            do_sample=False,
-                            max_new_tokens=max_new_tokens
+                            inputs, do_sample=False, max_new_tokens=max_new_tokens
                         )
-                    generated_text = self.tokenizer.decode(outputs[0], skip_special_tokens=False).strip()
+                    generated_text = self.tokenizer.decode(
+                        outputs[0], skip_special_tokens=False
+                    ).strip()
                 else:
                     full_prompt = (
                         f"<|begin_of_text|><|start_header_id|>system<|end_header_id>\n{system_prompt}<|eot_id|>"
                         f"<|start_header_id|>user<|end_header_id>\n{prompt}<|eot_id|>"
                         f"<|start_header_id|>assistant<|end_header_id>"
                     )
-                    inputs = self.tokenizer(full_prompt, return_tensors="pt").to(self.device)
+                    inputs = self.tokenizer(full_prompt, return_tensors="pt").to(
+                        self.device
+                    )
                     with torch.no_grad():
                         outputs = self.model.generate(
                             **inputs,
@@ -195,12 +218,16 @@ class LLMManager:
                             do_sample=False,
                             pad_token_id=self.tokenizer.pad_token_id,
                         )
-                    full_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
+                    full_text = self.tokenizer.decode(
+                        outputs[0], skip_special_tokens=True
+                    ).strip()
 
                     if full_text.startswith(full_prompt):
-                        generated_text = full_text[len(full_prompt):].strip()
+                        generated_text = full_text[len(full_prompt) :].strip()
                     else:
-                        print("⚠️ [LLMManager] Prompt prefix not found. Returning full decoded text.")
+                        print(
+                            "⚠️ [LLMManager] Prompt prefix not found. Returning full decoded text."
+                        )
                         generated_text = full_text
 
             elif self.loader == "gguf":
@@ -223,24 +250,30 @@ ws ::= [ \t\n\r]*
                     temperature=0.0,
                     top_p=0.85,
                     grammar=grammar,
-                    stop=["</s>"]
+                    stop=["</s>"],
                 )
-                generated_text = output['choices'][0]['message']['content'].strip()
+                generated_text = output["choices"][0]["message"]["content"].strip()
 
-                json_match = re.search(r'\[\s*\{.*?\}\s*\]', generated_text, re.DOTALL)
+                json_match = re.search(r"\[\s*\{.*?\}\s*\]", generated_text, re.DOTALL)
                 if json_match:
                     generated_text = json_match.group(0)
                 else:
-                    print(f"[LLMManager] ⚠️ No JSON array found in output: {generated_text}")
+                    print(
+                        f"[LLMManager] ⚠️ No JSON array found in output: {generated_text}"
+                    )
                     return "[]"
 
             else:
                 raise ValueError(f"Unsupported loader: {self.loader}")
 
-            print(f"[LLMManager] 🧪 Generated text before return:\n{repr(generated_text)}\n")
+            print(
+                f"[LLMManager] 🧪 Generated text before return:\n{repr(generated_text)}\n"
+            )
 
             if not isinstance(generated_text, str):
-                raise ValueError(f"Generated output is not a string: {type(generated_text)}")
+                raise ValueError(
+                    f"Generated output is not a string: {type(generated_text)}"
+                )
 
             return generated_text
 

@@ -1,3 +1,6 @@
+"""agent/planner.py"""
+
+import logging
 import json
 import os
 import re
@@ -6,6 +9,9 @@ from pydantic import BaseModel, ValidationError
 from tools.tool_registry import ToolRegistry
 from agent import llm_openai
 from agent.intent_classifier_core import classify_describe_only
+import logging_config
+
+logger = logging.getLogger(__name__)  # set up logger
 
 
 class ToolCall(BaseModel):
@@ -18,37 +24,38 @@ class Planner:
         self.tool_registry = ToolRegistry()
         self.use_openai = use_openai
         if self.use_openai:
-            print("[Planner] ⚙️ Using OpenAI backend")
+            logger.info("[Planner] ⚙️ Using OpenAI backend")
         else:
-            print("[Planner] ⚙️ Using local model")
+            logger.info("[Planner] ⚙️ Using local model")
             from agent.llm_manager import LLMManager  # only if local model is used
+
             self.llm_manager = LLMManager()
-            
+
         self.param_aliases = {
             "file_path": "path",
             "filename": "path",
-            "filepath": "path"
+            "filepath": "path",
         }
-    
+
     def plan(self, instruction: str) -> List[Dict[str, Any]]:
         instruction = instruction.strip()
         system_msg = (
             "Return a valid JSON array of tool calls. "
-            "Format: [{ \"tool\": \"tool_name\", \"params\": { ... } }]. "
+            'Format: [{ "tool": "tool_name", "params": { ... } }]. '
             "The key must be 'tool' (not 'call'), and 'tool' must be one of: "
             "summarize_config, llm_response, aggregate_file_content, read_file, seed_parser, "
             "make_virtualenv, list_project_files, echo_message, retrieval_tool, locate_file, find_file_by_keyword. "
-            "Use exactly the parameter names shown in the tool spec. For example: use \"path\" (not \"file_path\") for read_file. "
+            'Use exactly the parameter names shown in the tool spec. For example: use "path" (not "file_path") for read_file. '
             "For general knowledge or definitions, return []. Do NOT invent new tool names or use placeholders like 'path/to/file'. "
             "If a file must be found first, use `list_project_files` or `find_file_by_keyword` first, then refer to their output."
         )
-        
+
         tools = self.tool_registry.get_all()
         prompt = self._build_prompt(instruction, tools)
-        print("\n[PromptBuilder] 📜 Prompt:\n" + prompt)
+        logger.info("\n[PromptBuilder] 📜 Prompt:\n" + prompt)
         # print("[Planner] 🔧 Retrieved tools:", self.tool_registry.get_all())
 
-        if self.use_openai:   
+        if self.use_openai:
             llm_output = llm_openai.generate(prompt)
         else:
             llm_output = self.llm_manager.generate(
@@ -58,7 +65,7 @@ class Planner:
         if isinstance(llm_output, dict):
             llm_output = llm_output.get("text") or llm_output.get("output") or ""
 
-        print("\n[Planner] 📤 LLM raw response:\n" + repr(llm_output))
+        logger.info("\n[Planner] 📤 LLM raw response:\n" + repr(llm_output))
 
         try:
             if self.use_openai:
@@ -66,7 +73,7 @@ class Planner:
             else:
                 extracted_json = self._extract_json_from_response(llm_output)
 
-            print("\n[Planner] ✅ Extracted JSON array:\n", extracted_json)
+            logger.info(f"\n[Planner] ✅ Extracted JSON array:\n{extracted_json}")
 
             raw_tool_calls = json.loads(extracted_json)
             validated_calls: List[ToolCall] = []
@@ -78,74 +85,106 @@ class Planner:
                     if old_key in params and new_key not in params:
                         params[new_key] = params.pop(old_key)
                 # 🔧 FIX BAD PARAMS: Remove unexpected ones
-                
+
                 valid_keys = set(
                     self.tool_registry.tools.get(tool_name, {})
-                        .get("parameters", {})
-                        .get("properties", {})
-                        .keys()
-                        )
-                
+                    .get("parameters", {})
+                    .get("properties", {})
+                    .keys()
+                )
+
                 params = {k: v for k, v in params.items() if k in valid_keys}
-                
+
                 if tool_name not in self.tool_registry.tools or not valid_keys:
-                    print(f"[Planner] ⚠️ Unknown tool or invalid schema: {tool_name}")
+                    logger.error(
+                        f"[Planner] ⚠️ Unknown tool or invalid schema: {tool_name}"
+                    )
                     return [{"tool": "llm_response", "params": {"prompt": instruction}}]
-                
+
                 # Auto-fix common bad param
-                if tool_name == "list_project_files" and "files" in params and "root" not in params:
-                    print("[Planner] ⚠️ Auto-rewriting 'files' param to 'root'")
+                if (
+                    tool_name == "list_project_files"
+                    and "files" in params
+                    and "root" not in params
+                ):
+                    logger.info("[Planner] ⚠️ Auto-rewriting 'files' param to 'root'")
                     params["root"] = "."
                     del params["files"]
 
-
                 placeholder_path = params.get("path", "")
-                if any(kw in str(placeholder_path) for kw in ["path/to", "your_", "placeholder"]):
-                    print(f"[Planner] ⚠️ Placeholder path '{placeholder_path}' detected.")
+                if any(
+                    kw in str(placeholder_path)
+                    for kw in ["path/to", "your_", "placeholder"]
+                ):
+                    logger.debug(
+                        f"[Planner] ⚠️ Placeholder path '{placeholder_path}' detected."
+                    )
                     return [
-                        {"tool": "find_file_by_keyword", "params": {"keywords": ["python"], "root": "."}},
-                        {"tool": "echo_message", "params": {"message": "<prev_output>"}}
+                        {
+                            "tool": "find_file_by_keyword",
+                            "params": {"keywords": ["python"], "root": "."},
+                        },
+                        {
+                            "tool": "echo_message",
+                            "params": {"message": "<prev_output>"},
+                        },
                     ]
 
-                if any("path/to/" in str(v) or "your/" in str(v) for v in params.values()):
-                    print(f"[Planner] ⚠️ Placeholder detected → rewriting to find_file_by_keyword + echo_message.")
+                if any(
+                    "path/to/" in str(v) or "your/" in str(v) for v in params.values()
+                ):
+                    logger.debug(
+                        f"[Planner] ⚠️ Placeholder detected → rewriting to find_file_by_keyword + echo_message."
+                    )
                     return [
-                        {"tool": "find_file_by_keyword", "params": {"keywords": ["python", "py"], "root": "."}},
-                        {"tool": "echo_message", "params": {"message": "<prev_output>"}}
+                        {
+                            "tool": "find_file_by_keyword",
+                            "params": {"keywords": ["python", "py"], "root": "."},
+                        },
+                        {
+                            "tool": "echo_message",
+                            "params": {"message": "<prev_output>"},
+                        },
                     ]
 
                 item["params"] = params
-                print(f"[Planner] 🔄 Normalized call {i}: {item}")
+                logger.info(f"[Planner] 🔄 Normalized call {i}: {item}")
 
                 try:
                     validated = ToolCall(**item)
                     if validated.tool not in self.tool_registry.tools:
-                        print(f"[Planner] ⚠️ Invalid tool: {validated.tool}. Falling back to llm_response.")
-                        return [{"tool": "llm_response", "params": {"prompt": instruction}}]
+                        logger.error(
+                            f"[Planner] ⚠️ Invalid tool: {validated.tool}. Falling back to llm_response."
+                        )
+                        return [
+                            {"tool": "llm_response", "params": {"prompt": instruction}}
+                        ]
                     validated_calls.append(validated)
                 except ValidationError as ve:
-                    print(f"[Planner] ❌ Validation error in item {i}:\n{ve}\n")
+                    logger.error(f"[Planner] ❌ Validation error in item {i}:\n{ve}\n")
                     return [{"tool": "llm_response", "params": {"prompt": instruction}}]
 
             intent = classify_describe_only(instruction, use_openai=self.use_openai)
-            print(f"[Planner] 🧠 Parsed intent: {intent}")
+            logger.info(f"[Planner] 🧠 Parsed intent: {intent}")
 
             if intent == "describe_project":
-                print("[Planner] 🧠 Intent = describe_project → injecting filtered file summary plan.")
+                logger.info(
+                    "[Planner] 🧠 Intent = describe_project → injecting filtered file summary plan."
+                )
                 return self._build_filtered_project_summary_plan()
 
             if extracted_json.strip() == "[]" or not validated_calls:
-                print("[Planner] 🤷 No valid tools matched. Using llm_response.")
+                logger.info("[Planner] 🤷 No valid tools matched. Using llm_response.")
                 return [{"tool": "llm_response", "params": {"prompt": instruction}}]
 
-            print("\n[Planner] 🔍 Final planned tools:")
+            logger.info("\n[Planner] 🔍 Final planned tools:")
             for call in validated_calls:
-                print(f"  → {call.tool} with params {call.params}")
+                logger.info(f"  → {call.tool} with params {call.params}")
 
             return [call.dict() for call in validated_calls]
 
         except Exception as e:
-            print(f"[Planner] ❌ Failed to parse tools JSON: {e}\n")
+            logger.error(f"[Planner] ❌ Failed to parse tools JSON: {e}\n")
             return [{"tool": "llm_response", "params": {"prompt": instruction}}]
 
     def _build_filtered_project_summary_plan(self) -> List[Dict[str, Any]]:
@@ -172,15 +211,17 @@ class Planner:
             step_refs.append(f"<step_{idx}>")
 
         plan.append({"tool": "aggregate_file_content", "params": {"steps": step_refs}})
-        plan.append({
-            "tool": "llm_response",
-            "params": {
-                "prompt": (
-                    "Give a concise summary of the project based on the following files:\n\n"
-                    "<prev_output>\n\nHighlight purpose, key components, and usage."
-                )
+        plan.append(
+            {
+                "tool": "llm_response",
+                "params": {
+                    "prompt": (
+                        "Give a concise summary of the project based on the following files:\n\n"
+                        "<prev_output>\n\nHighlight purpose, key components, and usage."
+                    )
+                },
             }
-        })
+        )
 
         return plan
 
@@ -195,9 +236,9 @@ class Planner:
             elif name == "list_project_files":
                 usage_hint = " Use this to list all files in a folder."
             tool_descriptions.append(
-            f"- {name}({param_desc}): {meta['description']}."
-            f"{' ⚡ Use this to ' + meta['description'].lower() if 'count' in name or 'size' in meta['description'].lower() else ''}"
-            f"{usage_hint}"
+                f"- {name}({param_desc}): {meta['description']}."
+                f"{' ⚡ Use this to ' + meta['description'].lower() if 'count' in name or 'size' in meta['description'].lower() else ''}"
+                f"{usage_hint}"
             )
 
         tools_block = "\n".join(tool_descriptions)
@@ -234,25 +275,32 @@ class Planner:
         def is_valid_tool_array(candidate) -> bool:
             try:
                 parsed = json.loads(candidate)
-                return (
-                    isinstance(parsed, list)
-                    and all(isinstance(x, dict) and "tool" in x and "params" in x for x in parsed)
+                return isinstance(parsed, list) and all(
+                    isinstance(x, dict) and "tool" in x and "params" in x
+                    for x in parsed
                 )
             except Exception:
                 return False
+
         # 💡 For debugging: show full text before any cleanup
-        print("[Planner] 🧪 Full LLM response:\n", repr(text))
+        logger.info("[Planner] 🧪 Full LLM response:\n", repr(text))
 
         # Step 1: Strip special tokens and markdown remnants
-        text = text.replace("<|startoftext|>", "") 
+        text = text.replace("<|startoftext|>", "")
 
         # Step 2: Extract only the assistant's last message
-        matches = re.findall(r"<\|im_start\|>assistant(?:\n|\r|\r\n)(.*?)(?:\n)?<\|im_end\|>", text, flags=re.DOTALL)
+        matches = re.findall(
+            r"<\|im_start\|>assistant(?:\n|\r|\r\n)(.*?)(?:\n)?<\|im_end\|>",
+            text,
+            flags=re.DOTALL,
+        )
         if matches:
             text = matches[-1].strip()
         else:
             # Fallback: try extracting the first valid-looking JSON array
-            print("[Planner] ⚠️ No assistant block found — trying raw JSON fallback.")
+            logger.error(
+                "[Planner] ⚠️ No assistant block found — trying raw JSON fallback."
+            )
             json_candidates = re.findall(r"\[\s*\{.*?\}\s*\]", text, flags=re.DOTALL)
             for candidate in json_candidates:
                 try:
@@ -267,21 +315,22 @@ class Planner:
         if bracket_idx != -1:
             text = text[bracket_idx:]
 
-
         # Step 4: Try parsing the full block as JSON
         try:
             if is_valid_tool_array(text):
                 return text
             else:
-                print("[Planner] ❌ Top-level block is not a valid tool array.")
+                logger.error("[Planner] ❌ Top-level block is not a valid tool array.")
         except Exception as e:
-            print(f"[Planner] ⚠️ Error while checking top-level tool array: {e}")
+            logger.error(f"[Planner] ⚠️ Error while checking top-level tool array: {e}")
 
-     # Step 5: Try fallback via regex match for any JSON array
-        regex_matches = re.findall(r"\[\s*\{[\s\S]*?\}\s*(?:,\s*\{[\s\S]*?\}\s*)*]", text)
+        # Step 5: Try fallback via regex match for any JSON array
+        regex_matches = re.findall(
+            r"\[\s*\{[\s\S]*?\}\s*(?:,\s*\{[\s\S]*?\}\s*)*]", text
+        )
         for match in regex_matches:
             if is_valid_tool_array(match):
                 return match
 
-        print("[Planner] ❌ No valid JSON tool array found in LLM response.")
+        logger.error("[Planner] ❌ No valid JSON tool array found in LLM response.")
         raise ValueError("No valid JSON array of tool calls found in LLM response.")

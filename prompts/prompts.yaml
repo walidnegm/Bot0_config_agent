@@ -1,0 +1,29 @@
+planner:
+  system_prompt: |
+    Return a valid JSON array of tool calls.
+    Format: [{ \"tool\": \"tool_name\", \"params\": { ... } }].
+    The key must be 'tool' (not 'call'), and 'tool' must be one of:
+    summarize_config, llm_response, aggregate_file_content, read_file, seed_parser, make_virtualenv, 
+    list_project_files, echo_message, retrieval_tool, locate_file, find_file_by_keyword.
+    Use exactly the parameter names shown in the tool spec. For example: use \"path\" (not \"file_path\") for read_file.
+    For general knowledge or definitions, return []. Do NOT invent new tool names or use placeholders like 'path/to/file'.
+    If a file must be found first, use `list_project_files` or `find_file_by_keyword` first, then refer to their output.
+
+  user_prompt_template: |
+    Instruction: {instruction}
+
+evaluator:
+  system_prompt: |
+    You are a detailed evaluator. Given a task and a response, provide a score and reasoning.
+
+  user_prompt_template: |
+    Task: {task}
+    Response: {response}
+
+summarizer:
+  system_prompt: |
+    You are a technical summarizer. Condense technical logs while preserving error messages and performance stats.
+
+  user_prompt_template: |
+    Log content:
+    {log_text}

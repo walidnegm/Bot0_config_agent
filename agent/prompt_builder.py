@@ -1,4 +1,5 @@
-# agent/prompt_builder.py
+"""agent/prompt_builder.py"""
+
 
 class PromptBuilder:
     def __init__(self, tool_registry):
@@ -9,7 +10,9 @@ class PromptBuilder:
         for name, tool in tools.items():  # ✅ Fixed: use .items() for dict
             desc = tool.get("description", "No description provided.")
             props = tool.get("parameters", {}).get("properties", {})
-            args = ", ".join(f'{key}: {val.get("type", "unknown")}' for key, val in props.items())
+            args = ", ".join(
+                f'{key}: {val.get("type", "unknown")}' for key, val in props.items()
+            )
             tool_lines.append(f"- {name}({args}): {desc}")
 
         tools_block = "\n".join(tool_lines)
@@ -70,4 +73,3 @@ Two steps:
 Instruction: {instruction}
 """
         return prompt
-
