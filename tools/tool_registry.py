@@ -46,6 +46,7 @@ class ToolRegistry:
     def get_all(self):
         return self.tools
 
+
     def get_function(self, name):
         try:
             tool_spec = self.tools.get(name)
@@ -57,11 +58,29 @@ class ToolRegistry:
 
             print(f"[ToolRegistry] 🔍 Importing {func_name} from {module_path}")
             module = importlib.import_module(module_path)
-            function = getattr(module, func_name)
+            raw_function = getattr(module, func_name)
 
-            return function
+            def wrapped_function(**kwargs):
+                try:
+                    result = raw_function(**kwargs)
+                    if isinstance(result, dict) and "result" in result and "status" in result:
+                        return result
+                    return {
+                        "status": "ok",
+                        "message": "",
+                        "result": result
+                    }
+                except Exception as e:
+                    return {
+                        "status": "error",
+                        "message": str(e),
+                        "result": None
+                    }
+
+            return wrapped_function
 
         except Exception as e:
             print(f"[ToolRegistry] ❌ Failed to load function for tool '{name}': {e}")
             raise RuntimeError(f"Tool '{name}' error: {e}")
+
 

@@ -128,11 +128,13 @@ class Planner:
                     return [{"tool": "llm_response", "params": {"prompt": instruction}}]
 
             intent = classify_describe_only(instruction, use_openai=self.use_openai)
-            if extracted_json.strip() == "[]" or intent == "describe_project" or not validated_calls:
-                if intent == "describe_project":
-                    print("[Planner] 🧠 Intent = describe_project → injecting filtered file summary plan.")
-                    return self._build_filtered_project_summary_plan()
+            print(f"[Planner] 🧠 Parsed intent: {intent}")
 
+            if intent == "describe_project":
+                print("[Planner] 🧠 Intent = describe_project → injecting filtered file summary plan.")
+                return self._build_filtered_project_summary_plan()
+
+            if extracted_json.strip() == "[]" or not validated_calls:
                 print("[Planner] 🤷 No valid tools matched. Using llm_response.")
                 return [{"tool": "llm_response", "params": {"prompt": instruction}}]
 
@@ -192,7 +194,11 @@ class Planner:
                 usage_hint = " Use this for vague file searches like 'llama', 'model', 'snapshot'."
             elif name == "list_project_files":
                 usage_hint = " Use this to list all files in a folder."
-            tool_descriptions.append(f"- {name}({param_desc}): {meta['description']}.{usage_hint}")
+            tool_descriptions.append(
+            f"- {name}({param_desc}): {meta['description']}."
+            f"{' ⚡ Use this to ' + meta['description'].lower() if 'count' in name or 'size' in meta['description'].lower() else ''}"
+            f"{usage_hint}"
+            )
 
         tools_block = "\n".join(tool_descriptions)
         prompt = (
@@ -210,7 +216,12 @@ class Planner:
             "  },\n"
             "  ...\n"
             "]\n\n"
-            'Do NOT include Markdown formatting, comments, code blocks (no ```), or labels like "json".\n'
+            "Do NOT include:\n"
+            "- Markdown formatting or code blocks (no ```)\n"
+            "- JavaScript-style expressions (no '+', '?', ':', etc.)\n"
+            "- Inline comments like // or #\n"
+            "- Any explanation or commentary\n"
+            "Only output pure JSON with static values (strings, arrays, or numbers)."
             "Just return the raw JSON array.\n\n"
             "If no tool is relevant, return an empty array: []\n\n"
             'For multi-step tasks, return multiple tool calls in sequence. You may refer to previous tool outputs using the string "<prev_output>" or "<step_n>".\n\n'

@@ -210,7 +210,8 @@ class ToolExecutor:
                 print(f"[Executor] ❌ Tool {tool_name} failed: {e}. Falling back to raw chat completion.")
                 return self.fallback_raw_completion(prompt, max_new_tokens)
         
-        if not results or all(r["status"] != "ok" for r in results):
+        # Only fall back if *none* of the results have status "ok" or "success"
+        if all(r.get("status") not in ("ok", "success") for r in results):
             print("[Executor] No valid tools executed. Falling back to raw chat completion.")
             return self.fallback_raw_completion(prompt, max_new_tokens)
 
