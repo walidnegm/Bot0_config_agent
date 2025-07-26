@@ -57,10 +57,11 @@ from llama_cpp import Llama
 from gptqmodel import GPTQModel  # Ensure GPTQModel is installed or available
 from awq import AutoAWQForCausalLM
 from loaders.model_config_models import (
-    BaseHFModelConfig,
-    GGUFModelConfig,
-    ModelConfigEntry,
+    TransformersLoaderConfig,
+    LlamaCppLoaderConfig,
+    LoaderConfigEntry,
 )
+from loaders.load_model_config import load_model_config
 from utils.find_root_dir import find_project_root
 
 logger = logging.getLogger(__name__)
@@ -73,33 +74,7 @@ except Exception as e:
 (e.g., .git, requirements.txt, pyproject.toml, README.md)."
     ) from e
 
-ModelLoaderType = Literal["awq", "gptq", "gguf", "transformers"]
-
-
-def load_model_config(
-    model_name: str, json_path: Optional[Path] = None
-) -> ModelConfigEntry:
-    """
-    Load model configuration from models_configs.json.
-
-    Args:
-        model_name (str): Model key in models_configs.json.
-        json_path (Optional[Path]): Path to the JSON config file.
-            Defaults to models_configs.json in project root.
-
-    Returns:
-        Dict[str, Any]: Flattened model config with loader and parameters.
-    """
-    config_path = json_path or find_project_root() / "loaders" / "models_configs.json"
-    try:
-        with open(config_path, "r") as f:
-            all_configs = json.load(f)
-        if model_name not in all_configs:
-            raise ValueError(f"Model name '{model_name}' not found in {config_path}")
-        logger.info(f"✅ Model config for '{model_name}' loaded from {config_path}")
-        return all_configs[model_name]
-    except Exception as e:
-        raise FileNotFoundError(f"Failed to load config from {config_path}: {e}")
+ModelLoaderType = Literal["awq", "gptq", "llama_cpp", "transformers"]
 
 
 class LLMManager:
@@ -121,19 +96,21 @@ class LLMManager:
         self.model: Optional[Any] = None
 
         if self.use_openai:
-            print("[LLMManager] ⚠️ Using OpenAI backend, skipping local model loading.")
+            logger.info(
+                "[LLMManager] ⚠️ Using OpenAI backend, skipping local model loading."
+            )
             return
 
         model_name = model_name or "default"
         entry = load_model_config(model_name)
         self.loader = entry.loader
-        config: BaseHFModelConfig | GGUFModelConfig = entry.config
+        config: TransformersLoaderConfig | LlamaCppLoaderConfig = entry.config
 
         logger.info(f"[LLMManager] 📦 Initializing model: {model_name} ({self.loader})")
 
         self._load_model(config)
 
-    def _load_awq_model(self, config: BaseHFModelConfig) -> None:
+    def _load_model_with_awq(self, config: TransformersLoaderConfig) -> None:
         """
         Load an AWQ quantized model from a BaseHFModelConfig.
 
@@ -150,7 +127,7 @@ class LLMManager:
             tokenizer.pad_token_id = tokenizer.eos_token_id
         self.tokenizer = tokenizer
 
-    def _load_gptq_model(self, config: BaseHFModelConfig) -> None:
+    def _load_model_with_gptq(self, config: TransformersLoaderConfig) -> None:
         """
         Load a GPTQ quantized model.
 
@@ -169,7 +146,7 @@ class LLMManager:
             tokenizer.pad_token_id = tokenizer.eos_token_id
         self.tokenizer = tokenizer
 
-    def _load_gguf_model(self, config: GGUFModelConfig) -> None:
+    def _load_model_with_llama_cpp(self, config: LlamaCppLoaderConfig) -> None:
         """
         Load a GGUF llama.cpp model.
 
@@ -179,7 +156,7 @@ class LLMManager:
         self.model = Llama(**config.model_dump())
         self.tokenizer = self.model
 
-    def _load_transformers_model(self, config: BaseHFModelConfig) -> None:
+    def _load_model_with_transformers(self, config: TransformersLoaderConfig) -> None:
         """
         Load a standard Transformers model from Hugging Face hub or local path.
 
@@ -198,7 +175,9 @@ class LLMManager:
             tokenizer.pad_token_id = tokenizer.eos_token_id
         self.tokenizer = tokenizer
 
-    def _load_model(self, config: BaseHFModelConfig | GGUFModelConfig) -> None:
+    def _load_model(
+        self, config: TransformersLoaderConfig | LlamaCppLoaderConfig
+    ) -> None:
         """
         Load the model and tokenizer based on the config.
 
@@ -227,17 +206,17 @@ class LLMManager:
 
         # Dispatch based on loader
         if self.loader == "gptq":
-            assert isinstance(config, BaseHFModelConfig)
-            self._load_gptq_model(config)
+            assert isinstance(config, TransformersLoaderConfig)
+            self._load_model_with_gptq(config)
         elif self.loader == "awq":
-            assert isinstance(config, BaseHFModelConfig)
-            self._load_awq_model(config)
+            assert isinstance(config, TransformersLoaderConfig)
+            self._load_model_with_awq(config)
         elif self.loader == "transformers":
-            assert isinstance(config, BaseHFModelConfig)
-            self._load_transformers_model(config)
-        elif self.loader == "gguf":
-            assert isinstance(config, GGUFModelConfig)
-            self._load_gguf_model(config)
+            assert isinstance(config, TransformersLoaderConfig)
+            self._load_model_with_transformers(config)
+        elif self.loader == "llama_cpp":
+            assert isinstance(config, LlamaCppLoaderConfig)
+            self._load_model_with_llama_cpp(config)
         else:
             raise ValueError(f"Unsupported loader: {self.loader}")
 

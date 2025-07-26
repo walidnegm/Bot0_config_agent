@@ -7,33 +7,27 @@ from pydantic import BaseModel, Field, field_validator
 
 
 # 🔁 Literal for known loader types
-ModelLoaderType = Literal["gguf", "gptq", "awq", "transformers"]
+ModelLoaderType = Literal["llama_cpp", "gptq", "awq", "transformers"]
 
 
-# 🎯 Base config for all HF-style models (GPTQ, AWQ, Transformers)
-class BaseHFModelConfig(BaseModel):
-    model_id: (
-        str  # * In transformer based models, model_id can be either id or file path
-    )
-    device: str = Field(
-        default_factory=lambda: "cuda" if torch.cuda.is_available() else "cpu"
-    )
+class AWQLoaderConfig(BaseModel):
+    model_id: str
+    device: str = "auto"
     torch_dtype: str = "float16"
-    use_safetensors: Optional[bool] = None  # transformers only
+    use_safetensors: bool = True
+    fuse_qkv: Optional[bool] = None  # example AWQ-specific flag
 
-    @field_validator("torch_dtype")
-    @classmethod
-    def validate_torch_dtype(cls, v: str) -> str:
-        if not hasattr(torch, v):
-            raise ValueError(f"Invalid torch dtype: '{v}'")
-        return v
 
-    def resolved_dtype(self) -> torch.dtype:
-        return getattr(torch, self.torch_dtype)
+class GPTQLoaderConfig(BaseModel):
+    model_id: str
+    device: str = "auto"
+    torch_dtype: str = "float16"
+    disable_exllama: Optional[bool] = None  # example GPTQ-specific
+    group_size: Optional[int] = None
 
 
 # 📦 GGUF model config for llama.cpp
-class GGUFModelConfig(BaseModel):
+class LlamaCppLoaderConfig(BaseModel):
     """
     GGUF - specific to llama models
     """
@@ -55,23 +49,65 @@ class GGUFModelConfig(BaseModel):
         return str(path)
 
 
+# 🎯 Base config for all HF-style models (GPTQ, AWQ, Transformers)
+class TransformersLoaderConfig(BaseModel):
+    model_id: (
+        str  # * In transformer based models, model_id can be either id or file path
+    )
+    device: str = Field(
+        default_factory=lambda: "cuda" if torch.cuda.is_available() else "cpu"
+    )
+    torch_dtype: str = "float16"
+    use_safetensors: Optional[bool] = None  # transformers only
+
+    @field_validator("torch_dtype")
+    @classmethod
+    def validate_torch_dtype(cls, v: str) -> str:
+        if not hasattr(torch, v):
+            raise ValueError(f"Invalid torch dtype: '{v}'")
+        return v
+
+    def resolved_dtype(self) -> torch.dtype:
+        return getattr(torch, self.torch_dtype)
+
+
+class AWQLoaderEntry(BaseModel):
+    loader: Literal["awq"]
+    config: AWQLoaderConfig
+
+
+class GPTQLoaderEntry(BaseModel):
+    loader: Literal["gptq"]
+    config: GPTQLoaderConfig
+
+
+class LlamaCppLoaderEntry(BaseModel):
+    loader: Literal["llama-cpp"]
+    config: LlamaCppLoaderConfig
+
+
+class TransformersLoaderEntry(BaseModel):
+    loader: Literal["transformers"]
+    config: TransformersLoaderConfig
+
+
 # 🧠 Top-level entry loaded from models_configs.json
-class ModelConfigEntry(BaseModel):
+class LoaderConfigEntry(BaseModel):
     loader: ModelLoaderType
-    config: Union[BaseHFModelConfig, GGUFModelConfig]
+    config: Union[TransformersLoaderConfig, LlamaCppLoaderConfig]
 
     @classmethod
-    def parse_with_loader(cls, name: str, data: Dict[str, Any]) -> "ModelConfigEntry":
+    def parse_with_loader(cls, name: str, data: Dict[str, Any]) -> "LoaderConfigEntry":
         if "loader" not in data or "config" not in data:
             raise ValueError(f"Missing loader or config block for model: {name}")
 
         loader = data["loader"]
         cfg = data["config"]
 
-        if loader == "gguf":
-            config = GGUFModelConfig(**cfg)
+        if loader == "llama_cpp":
+            config = LlamaCppLoaderConfig(**cfg)
         elif loader in {"gptq", "awq", "transformers"}:
-            config = BaseHFModelConfig(**cfg)
+            config = TransformersLoaderConfig(**cfg)
         else:
             raise ValueError(f"Unsupported loader: {loader}")
 

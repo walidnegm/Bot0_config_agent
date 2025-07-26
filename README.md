@@ -323,32 +323,36 @@ print(response)
 ```
 
 ## Loader and Config
-**We will standardize on 4 types of loaders (loading types).**
+We standardize on 4 primary loaders ("backends") for managing local model inference.
 
 ### Loaders (Backends) — “How to load and run the model”
+| Loader           | Backend Library            | Description                                                                |
+| ---------------- | -------------------------- | -------------------------------------------------------------------------- |
+| `transformers`   | 🤗 `transformers`          | Standard FP16/BF16 models and basic quantized `.bin`/`.safetensors` models |
+| `gptq`           | `gptqmodel` (not autogptq) | Custom GPTQ loader with faster low-level inference                         |
+| `awq`            | `autoawq`                  | 4-bit quantized model loader using AWQ with fused optimizations            |
+| `llama_cpp`      | `llama-cpp-python`         | GGUF-based model inference using llama.cpp backend                         |
+| `vllm` (planned) | `vllm` engine              | Fast tokenizer-aware KV-caching runtime (batch optimized)                  |
 
-| Loader         | Backend Library             | Description                                                                |
-| -------------- | --------------------------- | -------------------------------------------------------------------------- |
-| `transformers` | 🤗 `transformers`           | Standard FP16/BF16 models and basic quantized `.bin`/`.safetensors` models |
-| `gptq`         | `gptqmodel`, `transformers` | Custom GPTQ loader, usually with speed or memory tweaks                    |
-| `awq`          | `autoawq`                   | Custom quantized models with AWQ handling                                  |
-| `gguf`         | `llama.cpp`                 | Lightweight C++ runtime for `.gguf` models                                 |
-| `vllm`         | `vllm` engine               | Fast tokenizer-aware KV-caching runtime                                    |
 
 ### Config (Per-model settings) — “What to do for this model”
-| Config Key            | Example Values               | Purpose                                        |
-| --------------------- | ---------------------------- | ---------------------------------------------- |
-| `use_safetensors`     | `true/false`                 | Which weight format to prefer (when supported) |
-| `torch_dtype`         | `float16`, `bfloat16`        | Precision for inference                        |
-| `device`              | `cuda`, `cpu`, `auto`        | Device selection                               |
-| `offload_folder`      | `./offload`                  | Offloading setup                               |
-| `trust_remote_code`   | `true`                       | For models like `LFM2` or custom attention     |
-| `quantization_config` | `{bits: 4, group_size: 128}` | For AWQ/GPTQ fine-tuning                       |
+| Config Key            | Example Values                | Purpose                                                 |
+| --------------------- | ----------------------------- | ------------------------------------------------------- |
+| `model_id`            | `TheBloke/Llama-2-7B-AWQ`     | Logical identifier for tracking the model               |
+| `model_path`          | `./models/llama2.Q4_K_M.gguf` | Local path to model weights (for AWQ, GGUF, GPTQ, etc.) |
+| `torch_dtype`         | `float16`, `bfloat16`         | Precision to load weights and run inference             |
+| `device`              | `cuda`, `cpu`, `auto`         | Device assignment                                       |
+| `use_safetensors`     | `true/false`                  | Choose `.safetensors` over `.bin` if both exist         |
+| `offload_folder`      | `./offload`                   | Optional CPU offload folder (e.g. LLaMA-3)              |
+| `trust_remote_code`   | `true`                        | Required for custom models like LFM2 or fine-tuned ones |
+| `quantization_config` | `{bits: 4, group_size: 128}`  | (Optional) metadata for tracking quantization strategy  |
 
-### Loader
-| Loader         | What it means                | Backend            | Notes                                |
-| -------------- | ---------------------------- | ------------------ | ------------------------------------ |
-| `transformers` | Standard HF models           | `transformers`     | Can use `.bin` or `.safetensors`     |
-| `gptq`         | Quantized model via GPTQ lib | `gptqmodel` / fork | Uses `.safetensors` but not a loader |
-| `awq`          | Quantized via AWQ            | `autoawq`          | Custom class                         |
-| `gguf`         | GGUF model for llama.cpp     | `llama_cpp.Llama`  | Pure C++ inference                   |
+
+### Loader Reference
+| Loader         | What it Means                       | Backend           | Notes                                                |
+| -------------- | ----------------------------------- | ----------------- | ---------------------------------------------------- |
+| `transformers` | Hugging Face standard model loading | `transformers`    | Supports full precision and quantized formats        |
+| `gptq`         | GPTQ quantized model (4-bit)        | `gptqmodel`       | Uses `.safetensors`; does not use transformers       |
+| `awq`          | AWQ 4-bit quantized model           | `autoawq`         | Fast AWQ loader; not Hugging Face-compatible         |
+| `llama_cpp`    | GGUF model for llama.cpp            | `llama_cpp.Llama` | Loads `.gguf`; extremely efficient for local CPU/GPU |
+| `vllm` (WIP)   | Token streaming with KV caching     | `vllm` engine     | Not yet integrated, but future option for batching   |
