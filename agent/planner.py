@@ -32,18 +32,28 @@ class Planner:
     
     def plan(self, instruction: str) -> List[Dict[str, Any]]:
         instruction = instruction.strip()
+
+        tools = self.tool_registry.get_all()
+        tool_names = ', '.join(sorted(tools.keys()))
         system_msg = (
             "Return a valid JSON array of tool calls. "
             "Format: [{ \"tool\": \"tool_name\", \"params\": { ... } }]. "
-            "The key must be 'tool' (not 'call'), and 'tool' must be one of: "
-            "summarize_config, llm_response, aggregate_file_content, read_file, seed_parser, "
-            "make_virtualenv, list_project_files, echo_message, retrieval_tool, locate_file, find_file_by_keyword. "
-            "Use exactly the parameter names shown in the tool spec. For example: use \"path\" (not \"file_path\") for read_file. "
+            f"The key must be 'tool' (not 'call'), and 'tool' must be one of: {tool_names}. "
+            "Use exactly the parameter names shown in the tool spec. "
+            "For example: use \"path\" (not \"file_path\") for read_file. "
             "For general knowledge or definitions, return []. Do NOT invent new tool names or use placeholders like 'path/to/file'. "
             "If a file must be found first, use `list_project_files` or `find_file_by_keyword` first, then refer to their output."
         )
+
         
-        tools = self.tool_registry.get_all()
+
+        # ✅ Run intent classification before using the LLM's tool plan
+        intent = classify_describe_only(instruction, use_openai=self.use_openai)
+        print(f"[Planner] 🧠 Parsed intent: {intent}")
+        if intent == "describe_project":
+            print("[Planner] 🔁 Overriding tool plan — injecting describe_project summary plan")
+            return self._build_filtered_project_summary_plan()
+
         prompt = self._build_prompt(instruction, tools)
         print("\n[PromptBuilder] 📜 Prompt:\n" + prompt)
         # print("[Planner] 🔧 Retrieved tools:", self.tool_registry.get_all())
@@ -55,6 +65,8 @@ class Planner:
                 prompt, system_prompt=system_msg, max_new_tokens=512, temperature=0.0
             )
 
+
+    # 🔹 Extract JSON array from LLM output
         if isinstance(llm_output, dict):
             llm_output = llm_output.get("text") or llm_output.get("output") or ""
 
@@ -74,22 +86,14 @@ class Planner:
             for i, item in enumerate(raw_tool_calls):
                 tool_name = item.get("tool")
                 params = item.get("params", {})
+                            # 🔧 Normalize parameter keys
                 for old_key, new_key in self.param_aliases.items():
                     if old_key in params and new_key not in params:
                         params[new_key] = params.pop(old_key)
                 # 🔧 FIX BAD PARAMS: Remove unexpected ones
                 
-                valid_keys = set(
-                    self.tool_registry.tools.get(tool_name, {})
-                        .get("parameters", {})
-                        .get("properties", {})
-                        .keys()
-                        )
-                
-                params = {k: v for k, v in params.items() if k in valid_keys}
-                
-                if tool_name not in self.tool_registry.tools or not valid_keys:
-                    print(f"[Planner] ⚠️ Unknown tool or invalid schema: {tool_name}")
+                if tool_name not in self.tool_registry.tools:
+                    print(f"[Planner] ⚠️ Unknown tool: {tool_name}")
                     return [{"tool": "llm_response", "params": {"prompt": instruction}}]
                 
                 # Auto-fix common bad param
@@ -113,7 +117,15 @@ class Planner:
                         {"tool": "find_file_by_keyword", "params": {"keywords": ["python", "py"], "root": "."}},
                         {"tool": "echo_message", "params": {"message": "<prev_output>"}}
                     ]
+                # Only validate params after confirming the tool exists
+                valid_keys = set(
+                self.tool_registry.tools[tool_name]
+                .get("parameters", {})
+                .get("properties", {})
+                .keys()
+                )
 
+                params = {k: v for k, v in params.items() if k in valid_keys}
                 item["params"] = params
                 print(f"[Planner] 🔄 Normalized call {i}: {item}")
 
@@ -126,13 +138,6 @@ class Planner:
                 except ValidationError as ve:
                     print(f"[Planner] ❌ Validation error in item {i}:\n{ve}\n")
                     return [{"tool": "llm_response", "params": {"prompt": instruction}}]
-
-            intent = classify_describe_only(instruction, use_openai=self.use_openai)
-            print(f"[Planner] 🧠 Parsed intent: {intent}")
-
-            if intent == "describe_project":
-                print("[Planner] 🧠 Intent = describe_project → injecting filtered file summary plan.")
-                return self._build_filtered_project_summary_plan()
 
             if extracted_json.strip() == "[]" or not validated_calls:
                 print("[Planner] 🤷 No valid tools matched. Using llm_response.")

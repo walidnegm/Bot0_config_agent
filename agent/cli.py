@@ -13,7 +13,7 @@
 #
 #   Run one-off command with OpenAI GPT backend:
 #     python agent/cli.py --once "where are my model files" --openai
-
+import pprint
 import os
 import argparse
 import datetime
@@ -50,6 +50,7 @@ def display_result(result):
     print(f"🗨️  Message: {message}")
 
     result_payload = result.get("result")
+    pp = pprint.PrettyPrinter(indent=2, width=100, compact=False)  # ← 🔹 Add this here
     if isinstance(result_payload, dict):
         for field in ("matches", "files", "results"):
             items = result_payload.get(field)
@@ -57,14 +58,21 @@ def display_result(result):
                 rows = [format_file_metadata(path) for path in items]
                 print(f"\n📁 {bold(field.capitalize())}:")
                 print(tabulate(rows, headers=["Path", "Size", "Created"], tablefmt="fancy_grid"))
-
+        
         for k, v in result_payload.items():
             if k in {"matches", "files", "results"}:
                 continue
-            if isinstance(v, str) and len(v) > 500:
-                print(f"📌 {k}: (truncated {len(v)} characters)")
-            else:
-                print(f"📌 {k}: {v}")
+            print(f"📌 {k}:")
+            pp.pprint(v)
+    elif isinstance(result_payload, list):
+        print(f"\n📌 Result (list):")
+        pp.pprint(result_payload)
+
+    else:
+        print(f"\n📌 Result:")
+        print(result_payload)
+
+
 
 
 def run_agent_loop(use_openai=False):
