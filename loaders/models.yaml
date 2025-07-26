@@ -2,8 +2,20 @@ default_model: llama3_8b
 
 models:
 
+  lfm2_1_2b:
+    provider: liquidai
+    model_path: LiquidAI/LFM2-1.2B
+    quantization: full
+    dtype: bfloat16
+    device_map: auto
+    license: Apache-2.0
+    temperature: 0.7
+    temp_range: [0.0, 1.5]
+    prompt_style: chatml
+    system_prompt: "You are an efficient and fast assistant."
+
   qwen3_4b:
-    provider: huggingface
+    provider: alibaba
     model_path: Qwen/Qwen3-4B-AWQ
     quantization: awq
     dtype: float16
@@ -15,7 +27,7 @@ models:
     system_prompt: "You are a helpful assistant."
 
   qwen3_1_7b_instruct:
-    provider: huggingface
+    provider: alibaba
     model_path: kaitchup/Qwen3-1.7B-autoround-4bit-gptq
     quantization: gptq
     dtype: float16
@@ -27,7 +39,7 @@ models:
     system_prompt: "You are a helpful assistant."
 
   deepseek_coder_1_3b:
-    provider: huggingface
+    provider: deepseek
     model_path: TheBloke/deepseek-coder-1.3b-instruct-GPTQ
     quantization: gptq
     dtype: float16
@@ -39,7 +51,7 @@ models:
     system_prompt: "You are a smart coding assistant."
 
   phi_3_5_mini:
-    provider: huggingface
+    provider: microsoft
     model_path: thesven/Phi-3.5-mini-instruct-awq
     quantization: awq
     dtype: float16
@@ -51,7 +63,7 @@ models:
     system_prompt: "You are a concise and clear assistant."
 
   gemma_2_2b:
-    provider: huggingface
+    provider: alphabet
     model_path: shuyuej/gemma-2-2b-it-GPTQ
     quantization: gptq
     dtype: float16
@@ -63,40 +75,53 @@ models:
     system_prompt: "You are a friendly AI helper."
 
   llama_3_2_3b:
-    provider: huggingface
+    provider: meta
     model_path: shuyuej/Llama-3.2-3B-Instruct-GPTQ
     quantization: gptq
     dtype: float16
     device_map: auto
-    license: Llama-3.2 (research)
+    license: meta-research
     temperature: 0.5
     temp_range: [0.0, 1.0]
     prompt_style: llama3
     system_prompt: "You are a helpful assistant."
 
   llama_2_7b_chat:
-    provider: huggingface
+    provider: meta
     model_path: TheBloke/Llama-2-7B-Chat-GPTQ
     quantization: gptq
     dtype: float16
     device_map: auto
-    license: Llama-3.2 (research)
+    license: meta-research
     temperature: 0.5
     temp_range: [0.0, 1.0]
     prompt_style: llama2
     system_prompt: "You are a helpful assistant."
 
   llama3_8b:
-    provider: huggingface
+    provider: meta
     model_path: meta-llama/Meta-Llama-3-8B-Instruct
     quantization: full
     dtype: float16
     device_map: auto
-    license: Llama-3.2 (research)
+    license: meta-research
     temperature: 0.2
     temp_range: [0.0, 1.0]
     prompt_style: llama3
     system_prompt: "You are a helpful assistant."
+
+  tinyllama_1_1b:
+    provider: tinyllama
+    model_path: TinyLlama/TinyLlama-1.1B-Chat-v1.0
+    quantization: gguf
+    dtype: unknown
+    device_map: auto
+    license: Apache-2.0
+    temperature: 0.7
+    temp_range: [0.0, 1.0]
+    prompt_style: llama3
+    system_prompt: "You are a compact and fast assistant."
+
 
 
 # What's prompt_style:
