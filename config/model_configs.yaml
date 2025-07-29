@@ -1,3 +1,56 @@
+qwen3_1_7b_instruct_gptq: # * Save in root/models dir; load with gptqmodel
+  loader: gptq
+  model_id: kaitchup/Qwen3-1.7B-autoround-4bit-gptq # for reference only; not used by loader
+  quantization_method: GPTQ   # Post-Training Quantization
+  config:
+    model_id_or_path: models/qwen3_1_7b_instruct_gptq
+    device: cuda  # ✅ Instead of "auto"
+    torch_dtype: float16
+  generation_config:
+    max_new_tokens: 512
+    temperature: 0.4  # Qwen model temperature range is 0 to 2.0
+    top_p: 0.9
+    stop: ["</s>"]
+
+qwen3_4b_awq: # * Save in root/models dir; load with autoawq
+  loader: awq
+  model_id: Qwen/Qwen3-4B-AWQ # for reference only; not used by loader
+  quantization_method: AWQ   # Activation-Aware Quantization
+  config:
+    model_id_or_path: models/qwen3_4b_awq
+    device: cuda  # ✅ Instead of "auto"
+    torch_dtype: float16
+  generation_config:
+    max_new_tokens: 512 
+    temperature: 0.4 # Qwen model temperature range is 0 to 2.0
+    top_p: 0.9
+
+gemma_2_2b_gptq:  # * Save in root/models dir; load with gptqmodel
+  loader: gptq  # gptq = gptqmodel library
+  model_id: shuyuej/gemma-2-2b-it-GPTQ  # for reference only; not used by loader
+  quantization_method: GPTQ   # Post-Training Quantization
+  config:
+    model_id_or_path: models/gemma_2_2b_gptq
+    device: cuda  # ✅ Instead of "auto"
+    torch_dtype: float16
+  generation_config:
+    max_new_tokens: 512
+    temperature: 0.2
+    top_p: 0.9
+
+deepseek_coder_1_3b_gptq: # * Save in root/models dir; load with gptqmodel
+  loader: gptq
+  model_id: TheBloke/deepseek-coder-1.3b-instruct-GPTQ  # for reference only; not used by loader
+  quantization_method: GPTQ   # Post-Training Quantization
+  config:
+    model_id_or_path: models/deepseek_coder_1_3b_gptq
+    device: cuda  # ✅ Instead of "auto"
+    torch_dtype: float16
+  generation_config:
+    max_new_tokens: 512
+    temperature: 0.1
+    top_p: 0.95
+
 lfm2_1_2b:  # save to default .cache; load with transformers
   loader: transformers
   model_id: LiquidAI/LFM2-1.2B  # for reference only; not used by loader
@@ -10,51 +63,23 @@ lfm2_1_2b:  # save to default .cache; load with transformers
     trust_remote_code: true   # ✅ Required for custom architecture "lfm2"
     low_cpu_mem_usage: true   # ✅ Streams weights during load (lower RAM use)
     offload_folder: offload   # ✅ Enables disk-based offloading if needed
-
-qwen3_1_7b_instruct_gptq: # * Save in root/models dir; load with gptqmodel
-  loader: gptq
-  model_id: kaitchup/Qwen3-1.7B-autoround-4bit-gptq # for reference only; not used by loader
-  quantization_method: GPTQ   # Post-Training Quantization
-  config:
-    model_id_or_path: models/qwen3_1_7b_instruct_gptq
-    device: cuda  # gptqmodel does not have auto
-    torch_dtype: float16
-
-qwen3_4b_awq: # * Save in root/models dir; load with autoawq
-  loader: awq
-  model_id: Qwen/Qwen3-4B-AWQ # for reference only; not used by loader
-  quantization_method: AWQ   # Activation-Aware Quantization
-  config:
-    model_id_or_path: models/qwen3_4b_awq
-    device: auto
-    torch_dtype: float16
-
-gemma_2_2b_gptq:  # * Save in root/models dir; load with gptqmodel
-  loader: gptq  # gptq = gptqmodel library
-  model_id: shuyuej/gemma-2-2b-it-GPTQ  # for reference only; not used by loader
-  quantization_method: GPTQ   # Post-Training Quantization
-  config:
-    model_id_or_path: models/gemma_2_2b_gptq
-    device: auto
-    torch_dtype: float16
-
-deepseek_coder_1_3b_gptq: # * Save in root/models dir; load with gptqmodel
-  loader: gptq
-  model_id: TheBloke/deepseek-coder-1.3b-instruct-GPTQ  # for reference only; not used by loader
-  quantization_method: GPTQ   # Post-Training Quantization
-  config:
-    model_id_or_path: models/deepseek_coder_1_3b_gptq
-    device: auto
-    torch_dtype: float16
-
+  generation_config:
+    max_new_tokens: 512
+    temperature: 0.2
+    top_p: 0.95
+    
 phi_3_5_mini_awq: # * Save in root/models dir; load with autoawq
   loader: awq 
   model_id: thesven/Phi-3.5-mini-instruct-awq
   quantization_method: AWQ   # Activation-Aware Quantization
   config:
     model_id_or_path: models/phi_3_5_mini_awq
-    device: auto
+    device: cuda  # ✅ Instead of "auto"
     torch_dtype: float16
+  generation_config:
+    max_new_tokens: 128
+    temperature: 0.2
+    top_p: 0.95
 
 llama_2_7b_chat_gptq: # * Save in root/models dir; load with gptqmodel
   loader: gptq  # gptq = gptqmodel library
@@ -62,8 +87,13 @@ llama_2_7b_chat_gptq: # * Save in root/models dir; load with gptqmodel
   quantization_method: GPTQ   # Post-Training Quantization
   config:
     model_id_or_path: models/llama_2_7b_chat_gptq
-    device: auto
+    device: cuda  # ✅ Instead of "auto"
     torch_dtype: float16
+  generation_config:
+    max_new_tokens: 512
+    temperature: 0.2
+    top_p: 0.9
+    # stop: ["</s>"]
 
 llama_3_2_3b_gptq:  # * Save in root/models dir; load with gptqmodel
   loader: gptq  # gptq = gptqmodel library
@@ -71,8 +101,13 @@ llama_3_2_3b_gptq:  # * Save in root/models dir; load with gptqmodel
   quantization_method: GPTQ   # Post-Training Quantization
   config:
     model_id_or_path: models/llama_3_2_3b_gptq
-    device: auto
+    device: cuda  # ✅ Instead of "auto"
     torch_dtype: float16
+  generation_config:
+    max_new_tokens: 512
+    temperature: 0.2
+    top_p: 0.95
+    # stop: ["</s>"]
 
 llama3_8b: # Save to default cache loaction; load with transformers
   loader: transformers
@@ -83,6 +118,11 @@ llama3_8b: # Save to default cache loaction; load with transformers
     device: auto
     torch_dtype: float16
     use_safetensors: true
+  generation_config:
+    max_new_tokens: 512
+    temperature: 0.2
+    top_p: 0.9
+    # stop: ["</s>"]
 
 tinyllama_1_1b_chat_gguf: # * Save in root/models dir; load with llama-cpp
   loader: llama_cpp
@@ -94,6 +134,10 @@ tinyllama_1_1b_chat_gguf: # * Save in root/models dir; load with llama-cpp
     n_gpu_layers: -1
     chat_format: zephyr
     verbose: true
+  generation_config:
+    max_tokens: 512  # llama-cpp use max_token instead of max_new_tokens
+    temperature: 0.3
+    top_p: 0.95
 
 # local LLMs saved in project should be under /models/"model_name" dir, such as:
 # - models/tinyllama_1_1b_chat_gguf/

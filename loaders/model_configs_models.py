@@ -126,6 +126,8 @@ class LoaderConfigEntry(BaseModel):
             - AWQLoaderConfig
             - TransformersLoaderConfig
 
+        generation_config (Optional[Dict[str, Any]]):
+            Generate method configuration.
     Methods:
         parse_with_loader(name: str, data: dict) -> LoaderConfigEntry:
             Factory method to parse and validate a model entry based on
@@ -141,6 +143,7 @@ class LoaderConfigEntry(BaseModel):
         GPTQLoaderConfig,
         AWQLoaderConfig,
     ]
+    generation_config: Optional[Dict[str, Any]] = None
 
     @classmethod
     def parse_with_loader(cls, name: str, data: Dict[str, Any]) -> LoaderConfigEntry:
@@ -164,6 +167,7 @@ class LoaderConfigEntry(BaseModel):
 
         loader = data["loader"]
         cfg = data["config"]
+        gen_cfg = data.get("generation_config")
 
         if loader == "llama_cpp":
             config = LlamaCppLoaderConfig(**cfg)
@@ -176,4 +180,4 @@ class LoaderConfigEntry(BaseModel):
         else:
             raise ValueError(f"Unsupported loader: {loader}")
 
-        return cls(loader=loader, config=config)
+        return cls(loader=loader, config=config, generation_config=gen_cfg)

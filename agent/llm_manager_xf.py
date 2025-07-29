@@ -112,7 +112,10 @@ class LLMManager:
             | GPTQLoaderConfig
             | LlamaCppLoaderConfig
             | TransformersLoaderConfig
-        ) = entry.config
+        ) = entry.config  # Model loading config
+        self.generation_config: dict = (
+            entry.generation_config or {}
+        )  # ✅ Generation config
 
         logger.info(f"[LLMManager] 📦 Initializing model: {model_name} ({self.loader})")
 
@@ -120,20 +123,40 @@ class LLMManager:
 
     def _load_model_with_awq(self, config: AWQLoaderConfig) -> None:
         """
-        Load an AWQ quantized model from a BaseHFModelConfig.
+        Load an AWQ quantized model using AutoAWQForCausalLM.from_quantized.
+
+        This method ensures that:
+        - The `device` is properly resolved (defaults to 'cuda' if available for AWQ models).
+        - The model is initialized with the positional `model_id_or_path` argument
+            passed explicitly.
+        This is necessary because `from_quantized()` requires `model_id_or_path`
+        as a positional parameter, and we avoid including it in `**loader_kwargs`
+        to prevent accidental duplication or argument conflicts.
 
         Args:
-            config (BaseHFModelConfig): AWQ config as a Pydantic model.
+            config (AWQLoaderConfig): Configuration object for the AWQ model, including
+                                    model path, device, dtype, and other loader-specific options.
         """
-        loader_kwargs = config.model_dump(
-            exclude={"model_id_or_path"}
-        )  # exclude positional
+        # Prefer CUDA if available for AWQ models
+        if getattr(config, "device", None) in (None, "auto"):
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        else:
+            self.device = config.device
+
+        if self.device == "cpu":
+            logger.warning(
+                "[LLMManager] ⚠️ AWQ model will run on CPU — this may be very slow or unsupported."
+            )
+
+        loader_kwargs = config.model_dump(exclude={"model_id_or_path", "device"})
 
         self.model = AutoAWQForCausalLM.from_quantized(
-            config.model_id_or_path, **loader_kwargs
+            config.model_id_or_path,
+            device=self.device,
+            fuse_layers=False,  # Set to false for now due to hardware constraint (do not have flash attention)
+            **loader_kwargs,
         )
 
-        # Tokenizer loaded separately (not handled by from_quantized)
         tokenizer = AutoTokenizer.from_pretrained(
             config.model_id_or_path, use_fast=True
         )
@@ -252,19 +275,18 @@ class LLMManager:
         self,
         prompt: str,
         system_prompt: str,
-        max_new_tokens: int,
-        temperature: float,
         expected_res_type: Literal["json", "text", None] = None,
+        **generation_kwargs,
     ) -> str:
         """
         Generates a response using autoawq library.
 
         Args:
             prompt (str): User prompt.
-            max_new_tokens (int): Maximum number of tokens to generate.
-            temperature (float): Sampling temperature (0 = greedy).
+            system_prompt (str): System prompt.
             expected_res_type (Literal["json", "text", None], optional): If "json",
                 attempts to extract a JSON array from the output.
+            **generation_kwargs: All generation params (max_new_tokens, temperature, etc.)
 
         Returns:
             str: Either the raw generated text or a parsed JSON array string.
@@ -277,19 +299,26 @@ class LLMManager:
         ), "Expected a Hugging Face tokenizer for AWQ models."
 
         full_prompt = self._format_prompt(prompt, system_prompt)
-        input_ids = self.tokenizer(full_prompt, return_tensors="pt").input_ids.to(
+        # input_ids = self.tokenizer(full_prompt, return_tensors="pt", padding=True).input_ids.to(
+        #     self.device
+        # )
+        inputs = self.tokenizer(full_prompt, return_tensors="pt", padding=True)
+        input_ids = inputs["input_ids"].to(self.device)
+        attention_mask = inputs["attention_mask"].to(
             self.device
-        )
+        )  # Need to get attention_mask to pass into the generate method
+        # attention_mask = inputs["attention_mask"].to(self.device)
 
         logger.debug(f"[AWQ] 🔁 Prompt:\n{full_prompt}")
 
         with torch.no_grad():
             outputs = self.model.generate(
                 input_ids,
-                max_new_tokens=max_new_tokens,
-                do_sample=temperature > 0.0,
-                temperature=temperature if temperature > 0.0 else 1.0,
+                attention_mask=attention_mask,  # add attention mask
+                eos_token_id=self.tokenizer.eos_token_id,
                 pad_token_id=self.tokenizer.pad_token_id,
+                do_sample=generation_kwargs.get("temperature", 0.3) > 0.0,
+                **generation_kwargs,
             )
 
         decoded = self.tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
@@ -309,9 +338,8 @@ class LLMManager:
         self,
         prompt: str,
         system_prompt: str,
-        max_new_tokens: int,
-        temperature: float,
         expected_res_type: Literal["json", "text", None] = None,
+        **generation_kwargs,
     ) -> str:
         """
         Generate a response from a GPTQ-quantized Hugging Face model.
@@ -319,11 +347,9 @@ class LLMManager:
         Args:
             prompt (str): The user input prompt.
             system_prompt (str): The system-level instruction or behavior guide.
-            max_new_tokens (int): Maximum number of tokens to generate.
-            temperature (float): Sampling temperature; 0.0 = deterministic.
             expected_res_type (Literal["json", "text", None], optional):
                 If "json", attempts to extract a JSON array from the output.
-
+            **generation_kwargs: All generation params (max_new_tokens, temperature, etc.)
         Returns:
             str: Generated response, either full text or extracted JSON block.
         """
@@ -342,10 +368,9 @@ class LLMManager:
         with torch.no_grad():
             outputs = self.model.generate(
                 **inputs,
-                max_new_tokens=max_new_tokens,
-                do_sample=temperature > 0.0,
-                temperature=temperature if temperature > 0.0 else 1.0,
                 pad_token_id=self.tokenizer.pad_token_id,
+                do_sample=generation_kwargs.get("temperature", 0.3) > 0.0,
+                **generation_kwargs,
             )
 
         decoded = self.tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
@@ -368,8 +393,8 @@ class LLMManager:
     def _generate_with_llama_cpp(
         self,
         messages: list,
-        max_new_tokens: int,
         expected_res_type: Literal["json", "text", None] = None,
+        **generation_kwargs,
     ) -> str:
         """
         Generates a response using a GGUF model loaded via llama.cpp.
@@ -378,12 +403,11 @@ class LLMManager:
             messages (list): List of message dicts in OpenAI-style chat format.
                 * The messages include both prompt and system prompt
                 * (llama-cpp will combine them internally)
-            max_new_tokens (int): Maximum number of tokens to generate.
-            expected_res_type (Literal["json", "text", None], optional): If "json",
-                attempts to extract a JSON array from the output.
+            expected_res_type (str | None): Extract JSON block if "json".
+            generation_kwargs (dict): Keys like max_new_tokens, temperature, stop, etc.
 
         Returns:
-            str: Either the raw generated text or a parsed JSON array string.
+            str: Raw or JSON-parsed response string.
         """
         assert (
             self.model is not None and self.tokenizer is not None
@@ -393,13 +417,27 @@ class LLMManager:
             f"[llama_cpp] 🔁 Input messages:\n{json.dumps(messages, indent=2)}"
         )
 
-        output = self.model.create_chat_completion(
-            messages,
-            max_tokens=max_new_tokens,
-            temperature=0.2,
-            top_p=0.85,
-            stop=["</s>"],
-        )
+        # llama-cpp requires to upack the kwargs and rebuild it
+        kwargs = {
+            "messages": messages,
+            "max_tokens": generation_kwargs.get("max_tokens", 256),
+            "temperature": generation_kwargs.get("temperature", 0.2),
+            "top_p": generation_kwargs.get("top_p", 0.95),
+            "top_k": generation_kwargs.get(
+                "top_k", 40
+            ),  # llama-cpp does not allow None
+            "stop": generation_kwargs.get("stop", ["</s>"]),
+        }
+
+        # Safeguard to ensure no None values in kwargs (llama-cpp specific) and
+        # top_k is int
+        # Safeguard: cast top_k to int if present
+        if "top_k" in kwargs:
+            kwargs["top_k"] = int(kwargs["top_k"])
+
+        kwargs = {k: v for k, v in kwargs.items() if v is not None}
+
+        output = self.model.create_chat_completion(**kwargs)
 
         content = output["choices"][0]["message"]["content"].strip()
         logger.debug(f"[llama_cpp] 🧪 Raw output:\n{repr(content)}")
@@ -420,9 +458,8 @@ class LLMManager:
         self,
         prompt: str,
         system_prompt: str,
-        max_new_tokens: int,
-        temperature: float,
         expected_res_type: Literal["json", "text", None] = None,
+        **generation_kwargs,
     ) -> str:
         """
         Generate a response using a standard Transformers model.
@@ -430,9 +467,8 @@ class LLMManager:
         Args:
             prompt (str): The user input prompt.
             system_prompt (str): System-level behavior instruction.
-            max_new_tokens (int): Maximum number of tokens to generate.
-            temperature (float): Sampling temperature.
             expected_res_type (str | None): Optionally extract JSON from output.
+            **generation_kwargs: All generation params (max_new_tokens, temperature, etc.)
 
         Returns:
             str: Raw or extracted JSON response.
@@ -450,10 +486,9 @@ class LLMManager:
         with torch.no_grad():
             outputs = self.model.generate(
                 input_ids,
-                max_new_tokens=max_new_tokens,
-                do_sample=temperature > 0.0,
-                temperature=temperature if temperature > 0.0 else 1.0,
                 pad_token_id=self.tokenizer.pad_token_id,
+                do_sample=generation_kwargs.get("temperature", 0.3) > 0.0,
+                **generation_kwargs,
             )
 
         decoded = self.tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
@@ -497,18 +532,19 @@ class LLMManager:
             self.model is not None and self.tokenizer is not None
         ), "Model or tokenizer not initialized."
 
-        # todo: comment out to test the function; still WIP
-        # system_prompt = system_prompt or (
-        #     "Return a valid JSON array of tool calls. Format: "
-        #     '[{ "tool": "tool_name", "params": { ... } }]. '
-        #     "The key must be 'tool' (not 'call'), and 'tool' must be one of: "
-        #     "summarize_config, llm_response, aggregate_file_content, read_file, "
-        #     "seed_parser, make_virtualenv, list_project_files, echo_message, "
-        #     "retrieval_tool, locate_file, find_file_by_keyword. "
-        #     "Do NOT invent new tool names. For general knowledge or definitions, return []."
-        # )
+        # System prompt
         system_prompt = "You are a helpful assistant."
 
+        # Load generation config from class
+        gen_cfg = self.generation_config.copy()
+
+        # ✅ Allow optional overrides
+        if max_new_tokens is not None:
+            gen_cfg["max_new_tokens"] = max_new_tokens
+        if temperature is not None:
+            gen_cfg["temperature"] = temperature
+
+        # Special setting for llama-cpp
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt},
@@ -520,25 +556,33 @@ class LLMManager:
         try:
             if self.loader == "awq":
                 response = self._generate_with_awq(
-                    prompt,
-                    system_prompt,
-                    max_new_tokens,
-                    temperature,
-                    expected_res_type,
+                    prompt=prompt,
+                    system_prompt=system_prompt,
+                    expected_res_type=expected_res_type,
+                    **gen_cfg,
                 )
+
             elif self.loader == "gptq":
                 response = self._generate_with_gptq(
-                    prompt,
-                    system_prompt,
-                    max_new_tokens,
-                    temperature,
-                    expected_res_type,
+                    prompt=prompt,
+                    system_prompt=system_prompt,
+                    expected_res_type=expected_res_type,
+                    **gen_cfg,
                 )
 
             elif self.loader == "llama_cpp":
                 response = self._generate_with_llama_cpp(
-                    messages, max_new_tokens, expected_res_type
+                    messages=messages, expected_res_type=expected_res_type, **gen_cfg
                 )
+
+            elif self.loader == "transformers":
+                response = self._generate_with_transformers(
+                    prompt=prompt,
+                    system_prompt=system_prompt,
+                    expected_res_type=expected_res_type,
+                    **gen_cfg,
+                )
+
             else:
                 raise ValueError(f"Unsupported loader type: {self.loader}")
 

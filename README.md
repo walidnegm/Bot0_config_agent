@@ -370,18 +370,33 @@ We standardize on 4 primary loaders ("backends") for managing local model infere
 ## Local LLM Loader Testing Progress
 
 ### Models Saved Locally in Project Directory
-- `qwen3_1_7b_instruct_gptq` — saved to `project/models/`; text generation tested and working
-- `qwen3_4b_awq` — saved to `project/models/`; 
-- `deepseek_coder_1_3b_gptq` — saved to `project/models/`
-- `gemma_2_2b_gptq` — saved to `project/models/`
-- `llama_2_7b_chat_gptq` — saved to `project/models/`
-- `llama_3_2_3b_gptq` — saved to `project/models/`
-- `phi_3_5_mini_awq` — saved to `project/models/`
-- `tinyllama_1_1b_chat_gguf` — saved to `project/models/`, text generation tested and working
+- `qwen3_1_7b_instruct_gptq` — saved to `project/models/`; text generation tested and working properly.
+- `qwen3_4b_awq` — saved to `project/models/`; text generation tested and working, but it repeats itself.
+- `deepseek_coder_1_3b_gptq` — saved to `project/models/`; text generation tested and working partially but it repeats itself.
+- `gemma_2_2b_gptq` — saved to `project/models/`; text generation tested and working properly.
+- `llama_2_7b_chat_gptq` — saved to `project/models/`; text generation tested but OOM - too large for 4.1GB VRAM.
+- `llama_3_2_3b_gptq` — saved to `project/models/`; text generation tested and working properly.
+- `phi_3_5_mini_awq` — saved to `project/models/`; text generation tested but not working!!!
+- `tinyllama_1_1b_chat_gguf` — saved to `project/models/`, text generation tested and working properly
 
 ### Models Remaining in Default Huggingface Cache
 - `lfm2_1_2b` (LiquidAI/LFM2-1.2B) - saved to .cache; can't get it to work for text generation
-- `llama3_8b` (meta-llama/Meta-Llama-3-8B-Instruct); too large to test on XF's laptop
+- `llama3_8b` (meta-llama/Meta-Llama-3-8B-Instruct); too large for 4GB VRAM
 
 If you are using Linux filing system, the default .cache location is usually at:<br>
 ~/.cache/huggingface/hub/models--....
+
+---
+### Summary
+| Model Name                 | Status          | Notes                                                    |
+| -------------------------- | ----------------| ---------------------------------------------------------|
+| `qwen3_1_7b_instruct_gptq` | ✅ Working      | Text generation tested and working properly              |
+| `qwen3_4b_awq`             | ⚠️ Partial      | Repeats itself; text generation works but needs guardrail|
+| `deepseek_coder_1_3b_gptq` | ⚠️ Partial      | Repeats itself; text generation works but needs guardrail|
+| `gemma_2_2b_gptq`          | ✅ Working      | Text generation tested and working properly              |
+| `llama_2_7b_chat_gptq`     | ❌ Failed (OOM) | Too large for 4.1GB VRAM                                 |
+| `llama_3_2_3b_gptq`        | ✅ Working      | Text generation tested and working properly              |
+| `phi_3_5_mini_awq`         | ❌ Failed       | Text generation not working at all                       |
+| `tinyllama_1_1b_chat_gguf` | ✅ Working      | Text generation tested and working properly              |
+--- 
+
