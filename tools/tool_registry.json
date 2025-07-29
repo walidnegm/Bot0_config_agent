@@ -1,4 +1,12 @@
-{
+{"check_cuda": {
+  "description": "Checks whether CUDA is available using PyTorch.",
+  "import_path": "tools.check_cuda.check_cuda",
+  "parameters": {
+    "type": "object",
+    "properties": {},
+    "required": []
+  }
+},
   "summarize_config": {
    "description": "Summarizes known config files (.env, config.yaml, etc.) and lists important keys.",
    "import_path": "tools.summarize_config.summarize_config",
