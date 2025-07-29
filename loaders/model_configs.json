@@ -76,7 +76,6 @@
   "tinyllama_gguf": {
     "loader": "llama_cpp",
     "config": {
-      "model_id": "TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF",
       "model_path": "./models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf",
       "n_ctx": 4096,
       "n_gpu_layers": -1,

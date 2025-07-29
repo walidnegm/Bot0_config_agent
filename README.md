@@ -184,6 +184,19 @@ def hello_tool(**kwargs):
 
 * Use clear descriptions and parameter names—they help the LLM use your tool correctly!
 * Return errors as `{"status": "error", "message": "description of error"}` for consistency.
+---
+## How to Use Logger
+In the module,
+``` python
+import logging
+import logging_config
+
+logger = logging.getLogger(__name__)
+```
+Then you can use logger.info, logger.debug, logger.error, etc. Logging files will be automaticaly saved in logs folder.
+
+
+Note: you only need to import logging_config (custom .py in the project) at the entry point. Lower level modules only need to import logging.
 
 ---
 ## Local LLM Models
@@ -240,22 +253,19 @@ python -m downloaders/download_all_models.py
 ```sh
 python test_gptq_quant_models.py
 ```
----
-## How to Use Logger
-In the module,
-``` python
-import logging
-import logging_config
+### Where to Save Local LLMs
 
-logger = logging.getLogger(__name__)
-```
-Then you can use logger.info, logger.debug, logger.error, etc. Logging files will be automaticaly saved in logs folder.
+- **If the model is downloaded via Hugging Face's `transformers` or `huggingface_hub`:**
+  - Let it save to the default `~/.cache/huggingface/` directory.
+  - ✅ **Do NOT manually specify the download or load location.**
+  - All standard `AutoModel` and `snapshot_download` calls will reuse this shared cache automatically.
 
+- **If the model is manually cloned or downloaded (e.g., GGUF, GPTQ, AWQ models):**
+  - Save it in the `models/` directory at the project root and update the models_config.yaml file.
+  - This directory is already listed in `.gitignore`, so models will not be tracked in Git.
+  - Loader functions (e.g., `LLMManager`) will resolve `model_path` relative to the project root.
 
-Note: you only need to import logging_config (custom .py in the project) at the entry point. Lower level modules only need to import logging.
-
-
-
+--- 
 NOT ON QUANTIZED MODELS
 -----------------------
 🌀 What You Tried
@@ -356,3 +366,22 @@ We standardize on 4 primary loaders ("backends") for managing local model infere
 | `awq`          | AWQ 4-bit quantized model           | `autoawq`         | Fast AWQ loader; not Hugging Face-compatible         |
 | `llama_cpp`    | GGUF model for llama.cpp            | `llama_cpp.Llama` | Loads `.gguf`; extremely efficient for local CPU/GPU |
 | `vllm` (WIP)   | Token streaming with KV caching     | `vllm` engine     | Not yet integrated, but future option for batching   |
+
+## Local LLM Loader Testing Progress
+
+### Models Saved Locally in Project Directory
+- `qwen3_1_7b_instruct_gptq` — saved to `project/models/`; text generation tested and working
+- `qwen3_4b_awq` — saved to `project/models/`; 
+- `deepseek_coder_1_3b_gptq` — saved to `project/models/`
+- `gemma_2_2b_gptq` — saved to `project/models/`
+- `llama_2_7b_chat_gptq` — saved to `project/models/`
+- `llama_3_2_3b_gptq` — saved to `project/models/`
+- `phi_3_5_mini_awq` — saved to `project/models/`
+- `tinyllama_1_1b_chat_gguf` — saved to `project/models/`, text generation tested and working
+
+### Models Remaining in Default Huggingface Cache
+- `lfm2_1_2b` (LiquidAI/LFM2-1.2B) - saved to .cache; can't get it to work for text generation
+- `llama3_8b` (meta-llama/Meta-Llama-3-8B-Instruct); too large to test on XF's laptop
+
+If you are using Linux filing system, the default .cache location is usually at:<br>
+~/.cache/huggingface/hub/models--....

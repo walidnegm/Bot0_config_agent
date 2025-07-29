@@ -6,9 +6,10 @@ from dotenv import load_dotenv
 from huggingface_hub import snapshot_download
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from utils.find_root_dir import find_project_root
+from config.paths import MODEL_CONFIG_YAML_FILE
+import logging_config
 
 # Set up logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -61,15 +62,27 @@ def cache_and_load_model(model_id: str, hf_token: str, name: str, quant: str) ->
 
 def main():
     project_root = find_project_root()
-    yaml_path = project_root / "models.yaml"
-    models_config = load_models_yaml(yaml_path)
+    CONFIG_YAML_FILE = MODEL_CONFIG_YAML_FILE  # use model_configs.yaml instead
+
+    if not CONFIG_YAML_FILE.exists():
+        raise FileNotFoundError(f"models.yaml file {CONFIG_YAML_FILE} not found.")
+
+    models_config = load_models_yaml(CONFIG_YAML_FILE)
     hf_token = ensure_hf_token()
 
     success, failed = [], []
-    for model in models_config["models"]:
-        model_id = model["id"]
-        name = model["name"]
-        quant = model.get("quantization", "unknown")
+
+    only_include = [
+        # "lfm2_1_2b",
+        "tinyllama_1_1b_chat_gguf",
+    ]  # Optional to download just selected models
+
+    for name, config in models_config.items():
+        if name not in only_include:
+            continue
+
+        model_id = config["model_id"]
+        quant = config.get("quantization", "unknown")
         ok = cache_and_load_model(model_id, hf_token, name, quant)
         (success if ok else failed).append(name)
 

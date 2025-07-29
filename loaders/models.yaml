@@ -1,6 +1,6 @@
 default_model: llama3_8b
 
-models:
+models: # todo: deprecate this file soon; use the model_configs.yaml file instead!
 
   lfm2_1_2b:
     provider: liquidai

@@ -1,0 +1,9 @@
+# config/prompts_config.yaml
+prompt_templates:
+  # Path to the YAML file containing templates
+  template_file: "../prompts/chat_templates.yaml"
+
+  # Selected templates (keys from chat_templates.yaml)
+  active_templates:
+    system: "default"
+    user: "question"
