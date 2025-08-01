@@ -16,15 +16,7 @@ def llm_response(**kwargs):
             llm = LLMManager()
             response = llm.generate(prompt.strip(), temperature=0.1)
 
-        return {
-            "status": "ok",
-            "message": response,
-            "result": response
-        }
+        return {"status": "ok", "message": response, "result": response}
 
     except Exception as e:
-        return {
-            "status": "error",
-            "message": f"LLM error: {e}"
-        }
-
+        return {"status": "error", "message": f"LLM error: {e}"}

@@ -1,11 +1,8 @@
 import re
+import json
 from agent.llm_manager import LLMManager
 from agent import llm_openai
 
-from agent.llm_manager import LLMManager
-from agent import llm_openai
-import json
-import re
 
 def classify_describe_only(instruction: str, use_openai: bool = False) -> str:
     """
@@ -16,16 +13,16 @@ def classify_describe_only(instruction: str, use_openai: bool = False) -> str:
     """
     if use_openai:
         prompt = (
-    "You are a strict intent classifier.\n"
-    "Respond with ONLY ONE WORD: either 'describe_project' or 'unknown'.\n"
-    "Do NOT return JSON.\n"
-    "Do NOT return a list.\n"
-    "Do NOT call any tools.\n"
-    "Just respond with one word. Examples:\n"
-    "- describe this project → describe_project\n"
-    "- what is cuda → unknown\n\n"
-    f"Instruction: {instruction}\n"
-    "Intent:"
+            "You are a strict intent classifier.\n"
+            "Respond with ONLY ONE WORD: either 'describe_project' or 'unknown'.\n"
+            "Do NOT return JSON.\n"
+            "Do NOT return a list.\n"
+            "Do NOT call any tools.\n"
+            "Just respond with one word. Examples:\n"
+            "- describe this project → describe_project\n"
+            "- what is cuda → unknown\n\n"
+            f"Instruction: {instruction}\n"
+            "Intent:"
         )
 
     else:
@@ -38,8 +35,7 @@ def classify_describe_only(instruction: str, use_openai: bool = False) -> str:
 
     try:
         raw = (
-            llm_openai.generate(prompt)
-            if use_openai else LLMManager().generate(prompt)
+            llm_openai.generate(prompt) if use_openai else LLMManager().generate(prompt)
         )
 
         result = raw.get("text") if isinstance(raw, dict) else raw
@@ -50,13 +46,17 @@ def classify_describe_only(instruction: str, use_openai: bool = False) -> str:
         # ✅ For OpenAI: reject anything that looks like JSON or tools
         if use_openai:
             if result.startswith("[") or result.startswith("{"):
-                print("[IntentClassifier] ❌ Rejected invalid structured output from OpenAI.")
+                print(
+                    "[IntentClassifier] ❌ Rejected invalid structured output from OpenAI."
+                )
                 return "unknown"
             result = result.lower().strip()
             return result if result in {"describe_project", "unknown"} else "unknown"
 
         # ✅ For local LLM: extract from assistant block or clean fallback
-        match = re.search(r"<\|im_start\|>assistant\s+(.*?)\s*<\|im_end\|>", result, re.DOTALL)
+        match = re.search(
+            r"<\|im_start\|>assistant\s+(.*?)\s*<\|im_end\|>", result, re.DOTALL
+        )
         if match:
             result = match.group(1).strip().lower()
         else:
@@ -69,4 +69,3 @@ def classify_describe_only(instruction: str, use_openai: bool = False) -> str:
     except Exception as e:
         print(f"[IntentClassifier] ❌ Error during classification: {e}")
         return "error"
-

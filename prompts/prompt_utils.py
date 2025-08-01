@@ -8,7 +8,7 @@ from pathlib import Path
 import logging
 from typing import Any, Dict, Optional, Tuple
 import yaml
-from config.paths import PROMPTS_CONFIG, TOOL_AGENT_PROMPTS
+from configs.paths import PROMPTS_CONFIG, AGENT_PROMPTS
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +54,7 @@ def load_prompt_config() -> Dict[str, Any]:
     except KeyError as e:
         raise KeyError(f"Missing key in config file: {e}")
 
-    resolved_path = TOOL_AGENT_PROMPTS.resolve()
+    resolved_path = AGENT_PROMPTS.resolve()
     prompt_templates["resolved_template_path"] = str(resolved_path)
     logger.info(f"[load_prompt_config] ✅ Resolved template: {resolved_path}")
 

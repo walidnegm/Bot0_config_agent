@@ -1,3 +1,5 @@
+# * Local LLM Models Only!
+
 qwen3_1_7b_instruct_gptq: # * Save in root/models dir; load with gptqmodel
   loader: gptq
   model_id: kaitchup/Qwen3-1.7B-autoround-4bit-gptq # for reference only; not used by loader
@@ -10,7 +12,6 @@ qwen3_1_7b_instruct_gptq: # * Save in root/models dir; load with gptqmodel
     max_new_tokens: 512
     temperature: 0.4  # Qwen model temperature range is 0 to 2.0
     top_p: 0.9
-    stop: ["</s>"]
 
 qwen3_4b_awq: # * Save in root/models dir; load with autoawq
   loader: awq

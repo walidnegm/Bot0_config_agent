@@ -1,7 +1,7 @@
 from loaders.load_model_config import load_model_config
 import json
 import logging
-from agent.llm_manager_xf import LLMManager
+from agent.llm_manager import LLMManager
 import logging_config
 
 logger = logging.getLogger(__name__)

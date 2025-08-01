@@ -1,6 +1,7 @@
 # test_llm_prompt.py
 from agent.llm_manager import LLMManager
 
+
 def main():
     llm = LLMManager()
 
@@ -20,6 +21,6 @@ def main():
         except Exception as e:
             print(f"❌ Error: {e}\n")
 
+
 if __name__ == "__main__":
     main()
-

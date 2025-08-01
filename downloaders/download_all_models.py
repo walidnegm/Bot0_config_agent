@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from huggingface_hub import snapshot_download
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from utils.find_root_dir import find_project_root
-from config.paths import MODEL_CONFIG_YAML_FILE
+from configs.paths import MODEL_CONFIGS_YAML_FILE
 import logging_config
 
 # Set up logging
@@ -62,7 +62,7 @@ def cache_and_load_model(model_id: str, hf_token: str, name: str, quant: str) ->
 
 def main():
     project_root = find_project_root()
-    CONFIG_YAML_FILE = MODEL_CONFIG_YAML_FILE  # use model_configs.yaml instead
+    CONFIG_YAML_FILE = MODEL_CONFIGS_YAML_FILE  # use model_configs.yaml instead
 
     if not CONFIG_YAML_FILE.exists():
         raise FileNotFoundError(f"models.yaml file {CONFIG_YAML_FILE} not found.")

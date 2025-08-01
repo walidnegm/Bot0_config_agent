@@ -6,13 +6,13 @@ import logging
 from typing import Optional
 from loaders.model_configs_models import LoaderConfigEntry
 from utils.find_root_dir import find_project_root
-from config.paths import MODEL_CONFIG_YAML_FILE
+from configs.paths import MODEL_CONFIGS_YAML_FILE
 
 logger = logging.getLogger(__name__)
 
 
 def load_model_config(
-    model_name: str, config_file: Path = MODEL_CONFIG_YAML_FILE
+    model_name: str, config_file: Path = MODEL_CONFIGS_YAML_FILE
 ) -> LoaderConfigEntry:
     """
     Load model configuration from models.yaml.
@@ -24,7 +24,7 @@ def load_model_config(
     Returns:
         LoaderConfigEntry: Model config pydantic model with loader and parameters.
     """
-    config_path = MODEL_CONFIG_YAML_FILE
+    config_path = MODEL_CONFIGS_YAML_FILE
     try:
         with open(config_file, "r") as f:
             all_configs = yaml.safe_load(f)
