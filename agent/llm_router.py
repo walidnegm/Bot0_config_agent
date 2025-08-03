@@ -24,7 +24,7 @@ def clamp(val, min_val, max_val):
 class LLMRouter:
     """TBA"""
 
-    def __init__(self, config_path: Path = project_root / "models.yaml"):
+    def __init__(self, config_path: Path = MODEL_CONFIGS_YAML_FILE):
         self.config = self._load_config(config_path)
         self.models = self.config.get("models", {})
         self.default_model_key = self.config.get("default_model")
@@ -100,7 +100,7 @@ class LLMRouter:
         elif cfg["provider"] == "huggingface":
             manager = self._get_or_load_llm_manager(model_key, cfg)
             return manager.generate(
-                prompt=prompt,
+                user_prompt=prompt,
                 temperature=temperature,
                 max_new_tokens=max_new_tokens,
                 system_prompt=system_prompt,

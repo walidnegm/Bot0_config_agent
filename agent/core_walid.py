@@ -11,14 +11,16 @@ class AgentCore:
         self.registry = ToolRegistry()
         self.planner = Planner(use_openai=use_openai)
         self.executor = ToolExecutor(use_openai=use_openai)
-        print(f"[AgentCore] ✅ Initialization complete (LLM: {'OpenAI' if use_openai else 'Local'})")
+        print(
+            f"[AgentCore] ✅ Initialization complete (LLM: {'OpenAI' if use_openai else 'Local'})"
+        )
 
     def handle_instruction(self, instruction: str) -> list:
         print(f"\n🧠 [AgentCore] Received instruction:\n  → {instruction}")
 
         try:
             print("[AgentCore] 🧭 Calling planner.plan()…")
-            plan = self.planner.plan(instruction)
+            plan = self.planner.plan_async(instruction)
             print("[AgentCore] ✅ Plan generated.")
 
             print("[AgentCore] 🚀 Executing plan:")
@@ -28,9 +30,4 @@ class AgentCore:
 
         except Exception as e:
             print(f"❌ [AgentCore] Planner error: {e}")
-            return [{
-                "tool": "planner",
-                "status": "error",
-                "message": str(e)
-            }]
-
+            return [{"tool": "planner", "status": "error", "message": str(e)}]

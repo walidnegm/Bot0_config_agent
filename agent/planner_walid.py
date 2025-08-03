@@ -96,7 +96,12 @@ class Planner:
 
                 if tool_name not in self.tool_registry.tools:
                     print(f"[Planner] ⚠️ Unknown tool: {tool_name}")
-                    return [{"tool": "llm_response", "params": {"prompt": instruction}}]
+                    return [
+                        {
+                            "tool": "llm_response_async",
+                            "params": {"prompt": instruction},
+                        }
+                    ]
 
                 # Auto-fix common bad param
                 if (
@@ -159,19 +164,29 @@ class Planner:
                     validated = ToolCall(**item)
                     if validated.tool not in self.tool_registry.tools:
                         print(
-                            f"[Planner] ⚠️ Invalid tool: {validated.tool}. Falling back to llm_response."
+                            f"[Planner] ⚠️ Invalid tool: {validated.tool}. Falling back to llm_response_async."
                         )
                         return [
-                            {"tool": "llm_response", "params": {"prompt": instruction}}
+                            {
+                                "tool": "llm_response_async",
+                                "params": {"prompt": instruction},
+                            }
                         ]
                     validated_calls.append(validated)
                 except ValidationError as ve:
                     print(f"[Planner] ❌ Validation error in item {i}:\n{ve}\n")
-                    return [{"tool": "llm_response", "params": {"prompt": instruction}}]
+                    return [
+                        {
+                            "tool": "llm_response_async",
+                            "params": {"prompt": instruction},
+                        }
+                    ]
 
             if extracted_json.strip() == "[]" or not validated_calls:
-                print("[Planner] 🤷 No valid tools matched. Using llm_response.")
-                return [{"tool": "llm_response", "params": {"prompt": instruction}}]
+                print("[Planner] 🤷 No valid tools matched. Using llm_response_async.")
+                return [
+                    {"tool": "llm_response_async", "params": {"prompt": instruction}}
+                ]
 
             print("\n[Planner] 🔍 Final planned tools:")
             for call in validated_calls:
@@ -181,7 +196,7 @@ class Planner:
 
         except Exception as e:
             print(f"[Planner] ❌ Failed to parse tools JSON: {e}\n")
-            return [{"tool": "llm_response", "params": {"prompt": instruction}}]
+            return [{"tool": "llm_response_async", "params": {"prompt": instruction}}]
 
     def _build_filtered_project_summary_plan(self) -> List[Dict[str, Any]]:
         files_to_read = []
@@ -209,7 +224,7 @@ class Planner:
         plan.append({"tool": "aggregate_file_content", "params": {"steps": step_refs}})
         plan.append(
             {
-                "tool": "llm_response",
+                "tool": "llm_response_async",
                 "params": {
                     "prompt": (
                         "Give a concise summary of the project based on the following files:\n\n"

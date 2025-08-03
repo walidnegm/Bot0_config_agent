@@ -62,21 +62,59 @@ def print_api_models_help() -> None:
         print(f"  {name:20}  {help_text}")
 
 
-def print_all_model_choices(
-    local_models: List[Tuple[str, str]], api_models: List[Tuple[str, str]]
-) -> None:
-    print("\nLocal models available:")
-    if local_models:
-        for name, desc in local_models:
-            print(f"  {name:20}  {desc}")
-    else:
-        print("  (none found)")
-    print("\nCloud API models available:")
-    if api_models:
-        for name, desc in api_models:
-            print(f"  {name:20}  {desc}")
-    else:
-        print("  (none found)")
-    print(
-        "\nPick a local model with --model <model_name> or a cloud model with --api-model <api_model_name>\n"
-    )
+def print_all_model_choices(local_models, api_models, use_color=True):
+    # Helper for color/bold
+    def bold(text):
+        return f"\033[1m{text}\033[0m" if use_color else text
+
+    def faint(text):
+        return f"\033[2m{text}\033[0m" if use_color else text
+
+    def cyan(text):
+        return f"\033[36m{text}\033[0m" if use_color else text
+
+    # Headers
+    print(bold("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
+    print(f"{cyan('🖥️  Local Models Available')}")
+    print(bold("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
+
+    for model, desc in local_models:
+        desc_disp = (
+            faint("(no description provided)")
+            if not desc or "no description" in desc.lower()
+            else desc
+        )
+        print(f"  {model.ljust(25)} {desc_disp}")
+
+    print()
+    print(f"{cyan('☁️  Cloud API Models Available')}")
+    print(bold("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
+    for model, desc in api_models:
+        print(f"  {model.ljust(25)} {desc}")
+    print(bold("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
+    print()
+
+
+# Usage (assuming local_models and api_models are list of tuples)
+# local_models = [("qwen3_1_7b_instruct_gptq", ""), ...]
+# api_models = [("gpt-3.5-turbo", "Legacy model, fast & cheap, ..."), ...]
+
+
+# def print_all_model_choices(
+#     local_models: List[Tuple[str, str]], api_models: List[Tuple[str, str]]
+# ) -> None:
+#     print("\nLocal models available:")
+#     if local_models:
+#         for name, desc in local_models:
+#             print(f"  {name:20}  {desc}")
+#     else:
+#         print("  (none found)")
+#     print("\nCloud API models available:")
+#     if api_models:
+#         for name, desc in api_models:
+#             print(f"  {name:20}  {desc}")
+#     else:
+#         print("  (none found)")
+#     print(
+#         "\nPick a local model with --model <model_name> or a cloud model with --api-model <api_model_name>\n"
+#     )

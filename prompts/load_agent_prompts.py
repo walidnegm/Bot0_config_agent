@@ -17,7 +17,8 @@ def load_planner_prompts(
 
     Args:
         template_path (Path|str): Path to the Jinja2 YAML prompt template.
-        user_task (str): The task the user is asking for; injected into the prompt.
+        user_task (str): The task the user is asking for; injected into
+            the prompt.
         tools (List[Dict[str, Any]]): A list of tool definitions to inject.
 
     Returns:
@@ -50,4 +51,38 @@ def load_planner_prompts(
         "user_prompt": planner["user_task_prompt"].format(
             user_task=user_task
         ),  # user's task
+    }
+
+
+def load_summarizer_prompt(
+    template_path: Path | str = AGENT_PROMPTS,
+    log_text: Optional[str] = None,
+) -> Dict[str, str]:
+    """
+    Loads the summarizer prompt configuration from a YAML file.
+
+    Args:
+        template_path (Path|str): Path to the YAML prompt file.
+        log_text (str, optional): Text to inject into the user_prompt_template
+            (if desired).
+
+    Returns:
+        Dict[str, str]: Dictionary with keys:
+            - system_prompt
+            - user_prompt_template
+    """
+    with open(template_path, "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+
+    summarizer = config.get("summarizer", {})
+
+    system_prompt = summarizer.get("system_prompt", "")
+    user_prompt_template = summarizer.get("user_prompt_template", "")
+
+    if log_text is not None:
+        user_prompt_template = user_prompt_template.format(log_text=log_text)
+
+    return {
+        "system_prompt": system_prompt,
+        "user_prompt_template": user_prompt_template,
     }

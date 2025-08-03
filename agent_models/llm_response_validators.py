@@ -21,16 +21,10 @@ All return Pydantic model instances from agent_response_models.py.
 
 import re
 import json
-from typing import Any, Dict, List, Union, Optional
-from agent_models.llm_response_models import (
-    TextResponse,
-    CodeResponse,
-    JSONResponse,
-    ToolSelect,
-    ToolSteps,
-    IntentClassificationResponse,
-)
 import logging
+from typing import Any, Dict, List, Union, Optional, Tuple, Type
+from agent_models.llm_response_models import *
+
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +64,31 @@ def clean_and_extract_json(response_content: str) -> Union[Dict[str, Any], List[
     except Exception as e:
         logger.error(f"JSON parse error: {e}")
         raise ValueError("Failed to parse JSON from extracted content.")
+
+
+def is_valid_llm_response(
+    obj: Any, model_types: Optional[Tuple[Type, ...]] = None
+) -> bool:
+    """
+    Checks if obj is an instance of any of the allowed LLM response models.
+
+    Args:
+        obj (Any): The object to check.
+        model_types (tuple[Type], optional): Allowed model types.
+            Defaults to standard agent response models.
+
+    Returns:
+        bool: True if obj is an allowed model, False otherwise.
+    """
+    if model_types is None:
+        model_types = (
+            CodeResponse,
+            JSONResponse,
+            TextResponse,
+            ToolSelect,
+            ToolSteps,
+        )
+    return isinstance(obj, model_types)
 
 
 def validate_response_type(

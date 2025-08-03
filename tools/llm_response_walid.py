@@ -1,8 +1,9 @@
-def llm_response(**kwargs):
-    import os
-    from agent.llm_manager import LLMManager
-    from agent.llm_openai import generate as openai_generate
+import os
+from agent.llm_manager import LLMManager
+from agent.llm_openai import generate as openai_generate
 
+
+def llm_response(**kwargs):
     prompt = kwargs.get("prompt", "")
     if not prompt:
         return {"status": "error", "message": "Missing prompt"}

@@ -162,11 +162,13 @@ def hello_tool(**kwargs):
 
 ---
 
-### 3. **(Optional) Test the Tool**
+### 3. **Test the Tool**
 
 * Start the CLI and try an instruction that should trigger your tool, e.g.:
 
   ```bash
+  python agent/cli.py --show-models-help
+
   python agent/cli.py --once "Where are my project files"
   ```
 * If you see validation errors, check your function name and parameters in `tool_registry.json`.

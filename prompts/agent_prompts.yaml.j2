@@ -28,13 +28,13 @@ planner:
     Each tool has a name, a set of parameters, and a description.
 
     === Tool List ===
-    {% for tool in planner.tools %}
+    {% for tool in tools %}
     - {{ tool.name }}({% for param, meta in tool.parameters.items() %}{{ param }}: {{ meta.type }}{% if not loop.last %}, {% endif %}{% endfor %}): {{ tool.description }}{% if tool.usage_hint %} — {{ tool.usage_hint }}{% endif %}
     {% endfor %}
 
     If a file must be found first, use `list_project_files` or `find_file_by_keyword` first, then refer to their output.
     Use exactly the parameter names shown in the tool spec. For example: use "path" (not "file_path") for read_file.
-    The key must be "tool" (not "call"), and "tool" must be one of: {{planner.tools | map(attribute="name") | join(", ")}}.
+    The key must be "tool" (not "call"), and "tool" must be one of: {{tools | map(attribute="name") | join(", ")}}.
 
   return_json_only_prompt: |
     Your ONLY output must be a single valid JSON array of objects, without any preamble or explanation.
@@ -85,13 +85,13 @@ planner:
     ]
   
   user_task_prompt: |
-    User task: {{planner.user_task}}
+    User task: {{user_task}}
 
   full_user_prompt: | # Combine all prompts excluding system prompt
-    {{planner.select_tools_prompt}}
-    {{planner.return_json_only_prompt}}
-    {{planner.multi_step_prompt}}
-    {{planner.user_prompt}}
+    {{select_tools_prompt}}
+    {{return_json_only_prompt}}
+    {{multi_step_prompt}}
+    {{user_prompt}}
 
 
 summarizer:
@@ -99,5 +99,7 @@ summarizer:
     You are a technical summarizer. Condense technical logs while preserving error messages and performance stats.
 
   user_prompt_template: |
-    Log content:
+    Give a concise summary of the project based on the following files:
+    <prev_output>
+    Highlight purpose, key components, and usage.
     {log_text}

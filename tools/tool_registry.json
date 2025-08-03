@@ -1,111 +1,27 @@
-{"check_cuda": {
-  "description": "Checks whether CUDA is available using PyTorch.",
-  "import_path": "tools.check_cuda.check_cuda",
-  "parameters": {
-    "type": "object",
-    "properties": {},
-    "required": []
-  }
-},
-  "summarize_config": {
-   "description": "Summarizes known config files (.env, config.yaml, etc.) and lists important keys.",
-   "import_path": "tools.summarize_config.summarize_config",
-   "parameters": {
-    "type": "object",
-    "properties": {},
-    "required": []
-  }
-},
-
-"llm_response": {
-  "description": "Sends a prompt to the LLM and returns the generated natural language response.",
-  "import_path": "tools.llm_response.llm_response",
-  "parameters": {
-    "type": "object",
-    "properties": {
-      "prompt": {
-        "type": "string",
-        "description": "Instruction or context to send to the LLM."
-      }
-    },
-    "required": ["prompt"]
-  }
-},
-
-
-"aggregate_file_content": {
-  "description": "Combines multiple file contents from prior steps for summarization.",
-  "import_path": "tools.aggregate_file_content.aggregate_file_content",
-  "parameters": {
-    "type": "object",
-    "properties": {
-      "steps": {
-        "type": "array",
-        "items": {
-          "type": "string"
-        },
-        "description": "List of step references (e.g., ['<step_0>', '<step_1>'])"
-      }
-    },
-    "required": ["steps"]
-  }
-},
-
-
-"read_file": {
-  "description": "Reads the contents of a specified file and returns it as a string.",
-  "import_path": "tools.read_file.read_file",
-  "parameters": {
-    "type": "object",
-    "properties": {
-      "path": {
-        "type": "string",
-        "description": "Path to the file to read"
-      }
-    },
-    "required": ["path"]
-  }
-},
-
-  "seed_parser": {
-    "description": "Parses plaintext files into key-value pairs.",
-    "import_path": "tools.seed_parser.seed_parser",
+{
+  "aggregate_file_content": {
+    "description": "Combines multiple file contents from prior steps for summarization.",
+    "import_path": "tools.aggregate_file_content.aggregate_file_content",
     "parameters": {
       "type": "object",
       "properties": {
-        "file": {
-          "type": "string",
-          "description": "Path to config or password file."
+        "steps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of step references (e.g., ['<step_0>', '<step_1>'])"
         }
       },
-      "required": ["file"]
+      "required": ["steps"]
     }
   },
-  "make_virtualenv": {
-    "description": "Creates a Python virtual environment at a path.",
-    "import_path": "tools.make_virtualenv.make_virtualenv",
+  "check_cuda": {
+    "description": "Checks whether CUDA is available using PyTorch.",
+    "import_path": "tools.check_cuda.check_cuda",
     "parameters": {
       "type": "object",
-      "properties": {
-        "path": {
-          "type": "string",
-          "description": "Where to create the environment."
-        }
-      },
-      "required": ["path"]
-    }
-  },
-  "list_project_files": {
-    "description": "Recursively lists all files under a given directory. Defaults to the current working directory.",
-    "import_path": "tools.list_project_files.list_project_files",
-    "parameters": {
-      "type": "object",
-      "properties": {
-        "root": {
-          "type": "string",
-          "description": "Root directory to scan (default is current working directory)."
-        }
-      },
+      "properties": {},
       "required": []
     }
   },
@@ -123,32 +39,18 @@
       "required": ["message"]
     }
   },
-  "retrieval_tool": {
-    "description": "Searches environment variables, .env files, and project files for secrets based on query intent.",
-    "import_path": "tools.retrieval_tool.retrieval_tool",
+  "find_dir_size": {
+    "description": "Counts the number of files and the total size (in bytes and MB) of all files in a directory (recursively).",
+    "import_path": "tools.find_dir_size.find_dir_size",
     "parameters": {
       "type": "object",
       "properties": {
-        "query": {
+        "root": {
           "type": "string",
-          "description": "Intent or keyword related to secret (e.g. GitHub token, Hugging Face password)."
+          "description": "Directory to scan (default is current directory)."
         }
       },
-      "required": ["query"]
-    }
-  },
-  "locate_file": {
-    "description": "Searches common development directories (home, project root) for a file with the exact name provided.",
-    "import_path": "tools.locate_file.locate_file",
-    "parameters": {
-      "type": "object",
-      "properties": {
-        "filename": {
-          "type": "string",
-          "description": "Exact name of the file to locate (e.g., 'model.pth', 'config.yaml', 'checkpoint.bin')."
-        }
-      },
-      "required": ["filename"]
+      "required": []
     }
   },
   "find_file_by_keyword": {
@@ -170,19 +72,146 @@
       "required": ["keywords"]
     }
   },
-  "find_dir_size": {
-    "description": "Counts the number of files and the total size (in bytes and MB) of all files in a directory (recursively).",
-    "import_path": "tools.find_dir_size.find_dir_size",
+  "list_project_files": {
+    "description": "Recursively scans a project directory for files, supporting directory exclusion and file type inclusion filters. Returns files as a list of string paths.",
+    "import_path": "tools.list_project_files.list_project_files",
     "parameters": {
       "type": "object",
       "properties": {
         "root": {
           "type": "string",
-          "description": "Directory to scan (default is current directory)."
+          "description": "The root directory to scan. Defaults to the project root if not provided."
+        },
+        "exclude": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "List of directory names or substrings to exclude (e.g., ['venv', '.venv', '__pycache__', 'models'])."
+        },
+        "exclude_dir": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Alternate key for 'exclude'."
+        },
+        "include": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "List of file extensions to include (e.g., ['.py', '.md', '.toml', '.yaml', '.json'])."
+        },
+        "include_file": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Alternate key for 'include'."
         }
       },
-    "required": []
+      "required": []
+    }
+  },
+  "llm_response_async": {
+    "description": "Sends a prompt to the LLM and returns the generated natural language response.",
+    "import_path": "tools.llm_response_async.llm_response_async",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "prompt": {
+          "type": "string",
+          "description": "Instruction or context to send to the LLM."
+        }
+      },
+      "required": ["prompt"]
+    }
+  },
+  "locate_file": {
+    "description": "Searches common development directories (home, project root) for a file with the exact name provided.",
+    "import_path": "tools.locate_file.locate_file",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "filename": {
+          "type": "string",
+          "description": "Exact name of the file to locate (e.g., 'model.pth', 'config.yaml', 'checkpoint.bin')."
+        }
+      },
+      "required": ["filename"]
+    }
+  },
+  "make_virtualenv": {
+    "description": "Creates a Python virtual environment at a path.",
+    "import_path": "tools.make_virtualenv.make_virtualenv",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Where to create the environment."
+        }
+      },
+      "required": ["path"]
+    }
+  },
+  "read_file": {
+    "description": "Reads the contents of a specified file and returns it as a string.",
+    "import_path": "tools.read_file.read_file",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Path to the file to read"
+        }
+      },
+      "required": ["path"]
+    }
+  },
+  "retrieval_tool": {
+    "description": "Searches environment variables, .env files, and project files for secrets based on query intent.",
+    "import_path": "tools.retrieval_tool.retrieval_tool",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "Intent or keyword related to secret (e.g. GitHub token, Hugging Face password)."
+        }
+      },
+      "required": ["query"]
+    }
+  },
+  "seed_parser": {
+    "description": "Parses plaintext files into key-value pairs.",
+    "import_path": "tools.seed_parser.seed_parser",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "Path to config or password file."
+        }
+      },
+      "required": ["file"]
+    }
+  },
+  "summarize_config": {
+    "description": "Summarizes known config files (.env, config.yaml, etc.) and lists important keys.",
+    "import_path": "tools.summarize_config.summarize_config",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    }
+  },
+  "summarize_files": {
+    "description": "Summarizes a list of config files for keys and possible secrets.",
+    "import_path": "tools.summarize_files.summarize_files",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "files": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "List of file paths to summarize."
+        }
+      },
+      "required": ["files"]
     }
   }
 }
-

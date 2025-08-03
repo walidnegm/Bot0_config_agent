@@ -1,12 +1,17 @@
+from pathlib import Path
 import os
+import logging
 import json
 import yaml
-from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 SECRET_KEYWORDS = ["token", "key", "secret", "pass", "auth"]
 
+
 def is_secret(k):
     return any(x in k.lower() for x in SECRET_KEYWORDS)
+
 
 def summarize_config(**kwargs):
     summary = []
@@ -18,7 +23,7 @@ def summarize_config(**kwargs):
         "config.yml",
         "settings.py",
         "pyproject.toml",
-        "requirements.txt"
+        "requirements.txt",
     }
 
     def extract_kv_lines(path):
@@ -47,50 +52,64 @@ def summarize_config(**kwargs):
                 try:
                     if fname.endswith(".json"):
                         data = json.loads(full_path.read_text())
-                        summary.append({
-                            "file": rel_path,
-                            "keys": list(data.keys()),
-                            "secrets": [k for k in data if is_secret(k)]
-                        })
+                        summary.append(
+                            {
+                                "file": rel_path,
+                                "keys": list(data.keys()),
+                                "secrets": [k for k in data if is_secret(k)],
+                            }
+                        )
 
                     elif fname.endswith((".yaml", ".yml")):
                         data = yaml.safe_load(full_path.read_text())
                         if isinstance(data, dict):
-                            summary.append({
-                                "file": rel_path,
-                                "keys": list(data.keys()),
-                                "secrets": [k for k in data if is_secret(k)]
-                            })
+                            summary.append(
+                                {
+                                    "file": rel_path,
+                                    "keys": list(data.keys()),
+                                    "secrets": [k for k in data if is_secret(k)],
+                                }
+                            )
                         else:
-                            summary.append({"file": rel_path, "keys": ["[non-dict YAML]"]})
+                            summary.append(
+                                {"file": rel_path, "keys": ["[non-dict YAML]"]}
+                            )
 
                     elif fname.endswith(".py"):
                         lines = extract_kv_lines(full_path)
-                        summary.append({
-                            "file": rel_path,
-                            "keys": list(lines.keys()),
-                            "secrets": [k for k in lines if is_secret(k)]
-                        })
+                        summary.append(
+                            {
+                                "file": rel_path,
+                                "keys": list(lines.keys()),
+                                "secrets": [k for k in lines if is_secret(k)],
+                            }
+                        )
 
                     else:
                         kv = extract_kv_lines(full_path)
-                        summary.append({
-                            "file": rel_path,
-                            "keys": list(kv.keys()) if isinstance(kv, dict) else ["<parse error>"],
-                            "secrets": [k for k in kv if is_secret(k)] if isinstance(kv, dict) else []
-                        })
+                        summary.append(
+                            {
+                                "file": rel_path,
+                                "keys": (
+                                    list(kv.keys())
+                                    if isinstance(kv, dict)
+                                    else ["<parse error>"]
+                                ),
+                                "secrets": (
+                                    [k for k in kv if is_secret(k)]
+                                    if isinstance(kv, dict)
+                                    else []
+                                ),
+                            }
+                        )
 
                 except Exception as e:
-                    summary.append({
-                        "file": rel_path,
-                        "error": str(e)
-                    })
+                    summary.append({"file": rel_path, "error": str(e)})
             else:
                 print(f"[SKIP] {fname}")
 
     return {
         "status": "ok",
         "message": f"Scanned {len(summary)} config files",
-        "configs": summary
+        "configs": summary,
     }
-

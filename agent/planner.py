@@ -8,7 +8,8 @@ import json
 import os
 import re
 import logging
-from typing import Dict, Any, List, Optional, Union, Type
+import json
+from typing import Dict, Any, List, Optional, Union, Type, Literal
 from pydantic import BaseModel, ValidationError
 import asyncio
 import concurrent.futures
@@ -31,7 +32,7 @@ from agent_models.llm_response_models import (
     ToolSelect,
     ToolSteps,
 )
-from prompts.load_agent_prompts import load_planner_prompts
+from prompts.load_agent_prompts import load_planner_prompts, load_summarizer_prompt
 from configs.api_models import (
     GPT_4_1,
     GPT_4_1_MINI,
@@ -51,6 +52,7 @@ ANTHROPIC = "anthropic"  # Standardized to lowercase
 # class ToolCall(BaseModel):
 #     tool: str
 #     params: Dict[str, Any]
+RESPONSE_TYPE = ["code", "json", "text"]
 
 
 def validate_api_model_name(model_name: str) -> None:
@@ -100,7 +102,126 @@ class Planner:
             "filepath": "path",
         }
 
-        # --- Intent Detection ---
+    async def dispatch_llm_async(
+        self,
+        user_prompt: str,
+        system_prompt: str,
+        response_type: Literal["json", "text", "code"],
+        response_model: Optional[Type[BaseModel]] = None,
+    ) -> Union[
+        JSONResponse,
+        TextResponse,
+        CodeResponse,
+        ToolSelect,
+        ToolSteps,
+    ]:
+        """
+        Asynchronously routes a language model call to either a remote API LLM (e.g., OpenAI,
+        Anthropic) or a local model (via LLMManager) using an executor thread.
+
+        Args:
+            user_prompt (str): User input text prompt with auto-generated template.
+            system_prompt (str): System prompt template (required by LOCAL LLMs).
+            response_type (str, optional): Desired response format (e.g., "text", "json",
+                "code"). Defaults to "text".
+            **kwargs: Additional keyword arguments for the LLM call (e.g., temperature,
+                max_tokens, response_model).
+
+        Returns:
+            Union[dict, JSONResponse, TextResponse, CodeResponse, ToolSelect, ToolSteps]:
+                The LLM's response as a structured Pydantic model or a plain dict,
+                depending on provider and settings.
+
+        Raises:
+            ValueError: If neither a local nor API model is configured.
+
+        Notes:
+            - Cloud LLMs (OpenAI, Anthropic, etc.) are always called asynchronously.
+            - Local LLMs are called in a thread pool to avoid blocking the event loop.
+            - You need to post-process the result (e.g., call .model_dump()
+                if you always want a dict).
+        """
+        # API LLMs: use async (faster)
+        if self.api_model_name:
+            full_prompt = "/n".join(
+                [system_prompt, user_prompt]
+            )  # Combine use & sys prompts
+            result = await self._call_api_llm_async(
+                prompt=full_prompt,
+                expected_res_type=response_type,
+                response_model=response_model,
+            )
+            return result  # return pydantic model
+
+        # Local LLMs: run sync (VRAM constraint) but use loop.run_in_executor to keep
+        # the event loop non-blocking
+        elif self.local_model_name:
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                lambda: self._call_local_llm(
+                    user_prompt=user_prompt,
+                    system_prompt=system_prompt,
+                    expected_res_type=response_type,
+                    response_model=response_model,
+                ),
+            )
+            return result  # return pydantic model
+        else:
+            raise ValueError(
+                f"Unknown model name: {self.api_model_name or self.local_model_name}"
+            )
+
+    async def plan_async(self, instruction: str) -> List[Dict[str, Any]]:
+        """
+        Asynchronously generate a plan (list of tool calls) from the user instruction.
+        Uses the configured local or API LLM.
+
+        Args:
+            instruction (str): The user instruction.
+
+        Returns:
+            List[Dict[str, Any]]: Sequence of planned tool call dicts.
+        """
+        instruction = instruction.strip()
+
+        # 1. ✅ Intent Detection
+        intent = self._classify_intent(instruction)
+        if intent == "describe_project":
+            return self._build_filtered_project_summary_plan()
+
+        # 2. ✅ Prompt Construction (Jinja2 YAML-based)
+        prompts_dic = self._load_prompt_segments(instruction)
+
+        # Infer response type and json_type
+        response_type = "text"
+        response_model = None
+
+        if any("return_json" in key for key in prompts_dic.keys()):
+            response_type = "json"
+        # Use response_model->call_llm functionsmodels->determine how to validate response
+        if any("tools" in key for key in prompts_dic.keys()):
+            response_model = ToolSteps | ToolSteps
+
+        # Combine prompts
+        system_prompt = prompts_dic.get("system_prompt", "")
+        user_prompt = "\n".join(
+            v for k, v in prompts_dic.items() if k != "system_prompt" and v
+        )  # combine all non-system and empty prompts
+
+        # Call LLM to select tool(s)
+        result = await self.dispatch_llm_async(
+            user_prompt=user_prompt,
+            system_prompt=system_prompt,
+            response_type=response_type,
+            response_model=response_model,
+        )  # return validated pydantic model
+
+        # 4. Parse Tool Calls (Validate, Normalize)
+        tool_calls = self._parse_and_validate_tool_calls(result, instruction)
+
+        # 5. Return final (validated, normalized) plan
+        return tool_calls
 
     def _classify_intent(self, instruction: str) -> str:
         try:
@@ -131,8 +252,8 @@ class Planner:
         prompt: str,
         max_tokens: int = 512,
         temperature: float = 0.2,
-        expected_res_type:str="text",
-        response_model: Optional[Type[BaseModel]]=None
+        expected_res_type: Literal["json", "text", "code"] = "text",
+        response_model: Optional[Type[BaseModel]] = None,
     ) -> Union[
         JSONResponse,
         TextResponse,
@@ -168,40 +289,38 @@ class Planner:
 
         # Choose the appropriate LLM API
         if llm_provider.lower() == "openai":
-            response_model = await call_openai_api_async(
+            validated_result = await call_openai_api_async(
                 prompt=prompt,
                 model_id=model_id,
                 expected_res_type=expected_res_type,
-                json_type="tool_selection",
                 temperature=temperature,
                 max_tokens=max_tokens,
+                response_model=response_model,
                 # client=client,  # todo: commented out for now, but it's good to instantiate early for cloud APIs
             )
         elif llm_provider.lower() == "anthropic":
-            response_model = await call_anthropic_api_async(
+            validated_result = await call_anthropic_api_async(
                 prompt=prompt,
                 model_id=model_id,
                 expected_res_type="json",
-                json_type="tool_selection",
                 temperature=temperature,
                 max_tokens=max_tokens,
+                response_model=response_model,
                 # client=self.client, # todo: commented out for now, but it's good to instantiate early for cloud APIs
             )
         else:
             raise ValueError(f"Unsupported LLM provider: {llm_provider}")
 
-        return response_model
+        return validated_result
 
     def _call_local_llm(
         self,
-        prompt: str,
-        model_name: Optional[str] = None,
+        user_prompt: str,
         system_prompt: Optional[str] = None,
         max_new_tokens: int = 512,
         temperature: float = 0.2,
-        expected_res_type: str="text",
-        json_type: Optional[str] = None
-
+        expected_res_type: Literal["json", "text", "code"] = "text",
+        response_model: Optional[Type[BaseModel]] = None,
     ) -> TextResponse | CodeResponse | JSONResponse | ToolSelect | ToolSteps:
         """
         Call the local LLM with the given prompt and parameters.
@@ -214,342 +333,193 @@ class Planner:
         Returns:
             JSONResponse (or your response model)
         """
+        assert self.local_model_name is not None
 
-        llm = LLMManager(model_name=model_name or self.local_model_name)
-        result = llm.generate(
-            prompt,
+        llm = LLMManager(self.local_model_name)
+        validated_result = llm.generate(
+            user_prompt=user_prompt,
+            system_prompt=system_prompt,
             max_new_tokens=max_new_tokens,
             temperature=temperature,
-            system_prompt=system_prompt,
-            expected_res_type="text",  # or whatever fits your workflow
-        )
-        # You might want to post-process/validate as a response model
-        return result  # ideally as a Pydantic model, not just a string!
-
-    async def dispatch_llm_async(
-        self,
-        prompt: str,
-        response_type: str = "text", # default to text
-        json_type: Optional[str]=None, 
-        **kwargs,
-    ) -> Union[
-        dict,
-        JSONResponse,
-        TextResponse,
-        CodeResponse,
-        ToolSelect,
-        ToolSteps,
-    ]:
-        """
-        Asynchronously route the LLM call to either a cloud API (async) or a local model
-        (run in executor).
-
-        Args:
-            prompt (str): The formatted prompt for the LLM.
-            **kwargs: Additional keyword arguments passed to the LLM call.
-
-        Returns:
-            Union[dict, JSONResponse, TextResponse, CodeResponse, ToolSelect, ToolSteps]:
-                The structured response from the LLM, as a dict or Pydantic model.
-        """
-        if self.api_model_name:
-            result = await self._call_api_llm_async(prompt=prompt, **kwargs)
-            return (
-                result  # Could call _maybe_model_dump(result) if you want always dict
-            )
-        elif self.local_model_name:
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
-                None, lambda: self._call_local_llm(prompt=prompt, **kwargs)
-            )
-            return (
-                result  # Could call _maybe_model_dump(result) if you want always dict
-            )
-        else:
-            raise ValueError(
-                f"Unknown model name: {self.api_model_name or self.local_model_name}"
-            )
-
-    def _call_llm(self, prompts: dict) -> str:
-        # Handles async/sync, local/api dispatch (stub: real implementation depends on your infra)
-        system_prompt = prompts.get("system_prompt")
-        full_prompt = "\n".join(prompts.values())
-        # If using an injected backend, just call:
-        # return self.llm_planner.generate_plan(full_prompt, system_prompt, ...)
-        if self.api_model_name:
-            # Call your async API LLM (pseudo-code: use actual async/await if needed)
-            from utils.llm_api_async import (
-                call_openai_api_async,
-                call_anthropic_api_async,
-            )
-
-    def plan(self, instruction: str) -> List[Dict[str, Any]]:
-        """
-        Asynchronously generate a plan (list of tool calls) from the user instruction.
-        Uses the configured local or API LLM.
-
-        Args:
-            instruction (str): The user instruction.
-
-        Returns:
-            List[Dict[str, Any]]: Sequence of planned tool call dicts.
-        """
-        instruction = instruction.strip()
-
-        # 1. Intent Detection
-        intent = self._classify_intent(instruction)
-        if intent == "describe_project":
-            return self._summary_plan()
-
-        # 2. Prompt Construction (Jinja2 YAML-based)
-        prompts = self._load_prompt_segments(instruction)
-
-        # Infer response type and json_type
-        if any("return_json" in key for key in prompts.keys()):
-            response_type = "json"
-        if any("tools" in key for key in prompts.keys()): 
-            json_type = "tool_selection"
-            response_model = ToolSteps|ToolSteps
-
-        result = await self._call_api_llm_async(
-            prompt=full_prompt,
-            ...,
+            expected_res_type=expected_res_type,
             response_model=response_model,
         )
 
-        # 3. LLM Routing (Local vs. API)
-        llm_output = self._dispatch_llm(prompts)
+        return validated_result  # Return pydantic model
 
-        # 4. Parse Tool Calls (Validate, Normalize)
-        tool_calls = self._parse_and_validate_tool_calls(llm_output, instruction)
+    def _parse_and_validate_tool_calls(
+        self, tool_or_tools: Union[ToolSelect, ToolSteps], instruction: str
+    ) -> List[dict]:
+        """
+        Parses and validates one or more tool calls for execution.
 
-        # 5. Return final (validated, normalized) plan
-        return tool_calls
+        Accepts either a single ToolSelect (representing a one-step tool plan)
+        or a ToolSteps (multi-step plan containing a list of ToolSelects), both as
+        Pydantic models.
 
-        # ✅ Run intent classification before using the LLM's tool plan
-        try:
-            intent = classify_describe_only(
-                instruction, use_openai=bool(self.api_model_name)
-            )
+        For each tool call:
+            - Verifies that the tool name exists in the current tool registry.
+            - Filters parameters to include only those defined in the registry schema.
+            - Logs and falls back to a default response if any tool is unknown or if no
+                valid steps remain.
 
-        except Exception as e:
-            logger.warning(
-                f"Intent classifier failed, defaulting to normal LLM plan. Error: {e}"
-            )
-            intent = "unknown"
+        Args:
+            tool_or_tools (Union[ToolSelect, ToolSteps]):
+                A ToolSelect instance (for a single-step plan) or a ToolSteps instance
+                (for a multi-step plan).
+            instruction (str):
+                The original user instruction, used for logging and fallback response
+                    generation.
 
-        logger.info(f"[Planner] 🧠 Parsed intent: {intent}")
-        if intent == "describe_project":
-            logger.info(
-                "[Planner] 🔁 Overriding tool plan — injecting describe_project summary plan"
-            )
-            return self._build_filtered_project_summary_plan()
+        Returns:
+            List[dict]: A validated list of tool call dictionaries, each containing 'tool'
+                        and 'params' keys, suitable for passing to the executor.
+                        If validation fails, returns a fallback plan.
+        """
 
-        # Load all prompt segments from template
-        prompts = self._load_prompts(instruction)
-        system_prompt = prompts["system_prompt"]
-        full_prompt = (
-            prompts["select_tools_prompt"]
-            + "\n"
-            + prompts["return_json_only_prompt"]
-            + "\n"
-            + prompts["multi_step_prompt"]
-            + "\n"
-            + prompts["user_prompt"]
-        )
-
-        logger.debug("\n[Planner] 📜 System prompt:\n%s", system_prompt)
-        logger.debug("\n[Planner] 📜 Full prompt:\n%s", full_prompt)
-
-        # --- Major Change: Route between async API and sync local LLM ---
-        if self.api_model_name:
-            logger.info(f"[Planner] Calling API LLM: {self.api_model_name}")
-            # Example routing (update for your API models!):
-            if "gpt" in self.api_model_name or "o3" in self.api_model_name:
-                llm_output = await call_openai_api_async(
-                    prompt=full_prompt,
-                    model=self.api_model_name,
-                    system_prompt=system_prompt,
-                    max_tokens=512,
-                    temperature=0.0,
-                )
-            elif "claude" in self.api_model_name:
-                llm_output = await call_anthropic_api_async(
-                    prompt=full_prompt,
-                    model=self.api_model_name,
-                    system_prompt=system_prompt,
-                    max_tokens=512,
-                    temperature=0.0,
-                )
-            elif "gemini" in self.api_model_name:
-                llm_output = await call_gemini_api_async(
-                    prompt=full_prompt,
-                    model=self.api_model_name,
-                    system_prompt=system_prompt,
-                    max_tokens=512,
-                    temperature=0.0,
-                )
-            else:
-                logger.error(f"Unknown API model for async call: {self.api_model_name}")
-                raise ValueError(f"Unknown API model: {self.api_model_name}")
+        # Normalize to a list of ToolSelect for processing
+        if isinstance(tool_or_tools, ToolSelect):
+            steps = [tool_or_tools]
+        elif isinstance(tool_or_tools, ToolSteps):
+            steps = tool_or_tools.steps
         else:
-            loop = asyncio.get_event_loop()
-
-            def blocking_generate():
-                return self.llm_manager.generate(
-                    full_prompt,
-                    system_prompt=system_prompt,
-                    max_new_tokens=512,
-                    temperature=0.0,
-                )
-
-            llm_output = await loop.run_in_executor(None, blocking_generate)
-
-        if isinstance(llm_output, dict):
-            llm_output = llm_output.get("text") or llm_output.get("output") or ""
-
-        logger.debug("\n[Planner] 📤 LLM raw response:\n%s", repr(llm_output))
-
-        # --- (Rest: plan extraction/validation unchanged except for clean logging) ---
-        try:
-            extracted_json = llm_output.strip()
-            logger.debug("\n[Planner] ✅ Extracted JSON array:\n%s", extracted_json)
-
-            raw_tool_calls = json.loads(extracted_json)
-            validated_calls: List[ToolSelect] = []
-
-            for i, item in enumerate(raw_tool_calls):
-                tool_name = item.get("tool")
-                params = item.get("params", {})
-                # 🔧 Normalize parameter keys
-                for old_key, new_key in self.param_aliases.items():
-                    if old_key in params and new_key not in params:
-                        params[new_key] = params.pop(old_key)
-                # 🔧 Remove unexpected params
-                if tool_name not in self.tool_registry.tools:
-                    logger.warning(f"[Planner] ⚠️ Unknown tool: {tool_name}")
-                    return [{"tool": "llm_response", "params": {"prompt": instruction}}]
-
-                # Autofix: 'files' param to 'root'
-                if (
-                    tool_name == "list_project_files"
-                    and "files" in params
-                    and "root" not in params
-                ):
-                    logger.warning("[Planner] ⚠️ Auto-rewriting 'files' param to 'root'")
-                    params["root"] = "."
-                    del params["files"]
-
-                # Placeholder handling
-                placeholder_path = params.get("path", "")
-                if any(
-                    kw in str(placeholder_path)
-                    for kw in ["path/to", "your_", "placeholder"]
-                ):
-                    logger.warning(
-                        f"[Planner] ⚠️ Placeholder path '{placeholder_path}' detected."
-                    )
-                    return [
-                        {
-                            "tool": "find_file_by_keyword",
-                            "params": {"keywords": ["python"], "root": "."},
-                        },
-                        {
-                            "tool": "echo_message",
-                            "params": {"message": "<prev_output>"},
-                        },
-                    ]
-
-                if any(
-                    "path/to/" in str(v) or "your/" in str(v) for v in params.values()
-                ):
-                    logger.warning(
-                        f"[Planner] ⚠️ Placeholder detected → rewriting to find_file_by_keyword + echo_message."
-                    )
-                    return [
-                        {
-                            "tool": "find_file_by_keyword",
-                            "params": {"keywords": ["python", "py"], "root": "."},
-                        },
-                        {
-                            "tool": "echo_message",
-                            "params": {"message": "<prev_output>"},
-                        },
-                    ]
-
-                valid_keys = set(
-                    self.tool_registry.tools[tool_name]
-                    .get("parameters", {})
-                    .get("properties", {})
-                    .keys()
-                )
-                params = {k: v for k, v in params.items() if k in valid_keys}
-                item["params"] = params
-                logger.debug(f"[Planner] 🔄 Normalized call {i}: {item}")
-
-                try:
-                    validated = ToolSelect(**item)
-                    if validated.tool not in self.tool_registry.tools:
-                        logger.warning(
-                            f"[Planner] ⚠️ Invalid tool: {validated.tool}. Falling back to llm_response."
-                        )
-                        return [
-                            {"tool": "llm_response", "params": {"prompt": instruction}}
-                        ]
-                    validated_calls.append(validated)
-                except ValidationError as ve:
-                    logger.error(f"[Planner] ❌ Validation error in item {i}:\n{ve}\n")
-                    return [{"tool": "llm_response", "params": {"prompt": instruction}}]
-
-            if extracted_json.strip() == "[]" or not validated_calls:
-                logger.info("[Planner] 🤷 No valid tools matched. Using llm_response.")
-                return [{"tool": "llm_response", "params": {"prompt": instruction}}]
-
-            logger.info("\n[Planner] 🔍 Final planned tools:")
-            for call in validated_calls:
-                logger.info(f"  → {call.tool} with params {call.params}")
-
-            return [call.dict() for call in validated_calls]
-
-        except Exception as e:
             logger.error(
-                f"[Planner] ❌ Failed to parse tools JSON: {e}\n", exc_info=True
+                f"[Planner] input is not ToolSelect or ToolSteps: got {type(tool_or_tools)}"
             )
-            return [{"tool": "llm_response", "params": {"prompt": instruction}}]
+            return self._fallback_llm_response(instruction)
+
+        validated_tools = []
+        for i, step in enumerate(steps):
+            tool_name = step.tool
+            params = step.params
+
+            # Check tool exists
+            if tool_name not in self.tool_registry.tools:
+                logger.error(
+                    f"[Planner] Unknown tool at step {i}: '{tool_name}'. Fallback."
+                )
+                return self._fallback_llm_response(instruction)
+
+            # Filter/normalize params for registry
+            valid_keys = set(
+                self.tool_registry.tools[tool_name]
+                .get("parameters", {})
+                .get("properties", {})
+                .keys()
+            )
+            filtered_params = {k: v for k, v in params.items() if k in valid_keys}
+            if len(filtered_params) != len(params):
+                logger.info(
+                    f"[Planner] Extra params filtered for tool '{tool_name}': {set(params) - valid_keys}"
+                )
+
+            validated_tools.append(
+                {
+                    "tool": tool_name,
+                    "params": filtered_params,
+                }
+            )
+
+        if not validated_tools:
+            logger.warning(
+                "[Planner] All tool calls invalid or filtered out. Fallback."
+            )
+            return self._fallback_llm_response(instruction)
+
+        logger.info(
+            f"[Planner] Returning {len(validated_tools)} validated tool call(s)."
+        )
+        return validated_tools
+
+    def _fallback_llm_response(self, instruction: str) -> List[Dict[str, Any]]:
+        return [{"tool": "llm_response_async", "params": {"prompt": instruction}}]
+
+    # --- Utility: Parameter Normalization, Placeholder Rewrites ---
+    def _normalize_params(self, params: Dict) -> Dict:
+        """
+        Normalizes and sanitizes a single tool call's parameter dictionary.
+
+        - Applies any parameter aliasing (e.g., converts 'filename' or 'filepath' to 'path').
+        - Detects placeholder path values such as 'path/to/file', 'your_file',
+            or strings containing 'placeholder'.
+            If a placeholder is detected in the 'path' parameter, rewrites parameters to
+            suggest a keyword-based file search instead.
+        - Returns the cleaned parameters dict, or a fallback dict for file search
+            if a placeholder is found.
+
+        Args:
+            params (dict): Parameter dictionary for a single tool call.
+
+        Returns:
+            dict: Normalized and sanitized parameters, ready for tool execution.
+        """
+        params = {self.param_aliases.get(k, k): v for k, v in params.items()}
+        placeholder_path = params.get("path", "")
+        if any(
+            kw in str(placeholder_path) for kw in ["path/to", "your_", "placeholder"]
+        ):
+            logger.warning(f"Placeholder path '{placeholder_path}' detected.")
+            return {"keywords": ["python", "py"], "root": "."}
+        return params
 
     def _build_filtered_project_summary_plan(self) -> List[Dict[str, Any]]:
-        files_to_read = []
-        for root, _, files in os.walk("."):
-            if any(skip in root for skip in ["venv", "__pycache__", "models"]):
-                continue
-            for fname in files:
-                if not fname.endswith((".py", ".md", ".toml")):
-                    continue
-                fpath = os.path.join(root, fname)
-                try:
-                    if os.path.getsize(fpath) <= 10_000:
-                        files_to_read.append(fpath)
-                except OSError:
-                    continue
+        """
+        Builds a multi-step agent plan to summarize the project using the
+        list_project_files tool, read_file, aggregate_file_content, and
+        llm_response_async tools.
 
-        files_to_read = sorted(files_to_read)[:5]
+        - Uses the list_project_files tool to gather relevant files (extensions,
+            exclusions, size handled by tool).
+        - Reads and aggregates files, then summarizes via LLM.
 
+        Returns:
+            List[Dict[str, Any]]: The agent tool execution plan.
+        """
         plan = []
         step_refs = []
-        for idx, fpath in enumerate(files_to_read):
-            plan.append({"tool": "read_file", "params": {"path": fpath}})
-            step_refs.append(f"<step_{idx}>")
 
-        plan.append({"tool": "aggregate_file_content", "params": {"steps": step_refs}})
+        # 1. List files using the tool (let tool handle exclusions and extensions)
         plan.append(
             {
-                "tool": "llm_response",
+                "tool": "list_project_files",
                 "params": {
-                    "prompt": (
-                        "Give a concise summary of the project based on the following files:\n\n"
-                        "<prev_output>\n\nHighlight purpose, key components, and usage."
-                    )
+                    "root": ".",
+                    "exclude": [".venv", "venv", "__pycache__", "model", "models"],
+                    "include": [".py", ".md", ".toml", ".yaml", ".json"],
                 },
+            }
+        )
+
+        # 2. Read files from the output of list_project_files (limit to top 5)
+        # - "<step_0>" is the step reference for list_project_files
+        # - Agent/executor should use output from step_0 to dynamically generate these steps
+        for i in range(5):
+            plan.append(
+                {
+                    "tool": "read_file",
+                    "params": {
+                        "path": f"<step_0.files[{i}]>"
+                        # Indicates: take the i-th file from previous tool's 'files' output
+                    },
+                }
+            )
+            step_refs.append(f"<step_{i+1}>")  # +1 because step_0 is list_project_files
+
+        # 3. Aggregate file contents
+        plan.append({"tool": "aggregate_file_content", "params": {"steps": step_refs}})
+
+        # 4. Load summarizer prompt templates
+        prompts = load_summarizer_prompt()
+        system_prompt = prompts.get("system_prompt", "")
+        user_prompt = "\n".join(
+            v for k, v in prompts.items() if k != "system_prompt" and v
+        )
+
+        # 5. Summarize with LLM
+        plan.append(
+            {
+                "tool": "llm_response_async",
+                "params": {"system_prompt": system_prompt, "user_prompt": user_prompt},
             }
         )
 

@@ -15,7 +15,7 @@ def main():
                 print("👋 Exiting.")
                 break
 
-            response = llm.generate(prompt=prompt, temperature=0.1)
+            response = llm.generate(user_prompt=prompt, temperature=0.1)
             print(f"\n📤 LLM Response:\n{response}\n")
 
         except Exception as e:

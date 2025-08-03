@@ -15,6 +15,7 @@ Usage examples:
 
   # Run one-off command with a cloud API model
   python agent/cli.py --api-model claude-3-haiku-20240307 --once "summarize project config"
+  python -m agent.cli --api-model gpt-4.1-mini --once "where are my config files?"
 
   # Show all available models and their descriptions
   python agent/cli.py --show-models-help
@@ -41,7 +42,8 @@ from utils.get_model_info_utils import (
     get_api_models_and_help,
     print_all_model_choices,
 )
-from configs.paths import MODEL_CONFIGS_YAML_FILE, 
+from configs.paths import MODEL_CONFIGS_YAML_FILE
+import logging_config
 
 # Setup logger
 logger = logging.getLogger(__name__)
@@ -81,13 +83,14 @@ def bold(text: str) -> str:
     return f"\033[1m{text}\033[0m" if USE_COLOR else text
 
 
-def display_result(result: Dict[str, Any])-> None:
+def display_result(result: Dict[str, Any]) -> None:
+    """Display and log results (for debugging)"""
     tool = result.get("tool", "Unknown Tool")
     status = result.get("status", "ok")
 
     # Skip noisy tools
     if (
-        tool in {"read_file", "aggregate_file_content", "llm_response"}
+        tool in {"read_file", "aggregate_file_content", "llm_response_async"}
         and status == "ok"
     ):
         return
@@ -96,6 +99,10 @@ def display_result(result: Dict[str, Any])-> None:
     print(f"\n🔧 Tool: {tool}")
     print(f"🗨️  Message: {message}")
 
+    # Logging to debug
+    logger.info(f"\n🔧 Tool: {tool}")
+    logger.info(f"🗨️  Message: {message}")
+
     result_payload = result.get("result")
     pp = pprint.PrettyPrinter(indent=2, width=100, compact=False)
     if isinstance(result_payload, dict):
@@ -103,24 +110,45 @@ def display_result(result: Dict[str, Any])-> None:
             items = result_payload.get(field)
             if isinstance(items, list) and items:
                 rows = [format_file_metadata(path) for path in items]
-                print(f"\n📁 {bold(field.capitalize())}:")
-                print(
-                    tabulate(
-                        rows, headers=["Path", "Size", "Created"], tablefmt="fancy_grid"
-                    )
+                header = f"\n📁 {field.capitalize()}:"
+                table = tabulate(
+                    rows, headers=["Path", "Size", "Created"], tablefmt="fancy_grid"
                 )
+                print(f"\n📁 {bold(field.capitalize())}:")
+                print(table)
+
+                # Logging for debugging
+                logger.info(header)
+                logger.info("\n" + table)
 
         for k, v in result_payload.items():
             if k in {"matches", "files", "results"}:
                 continue
-            print(f"📌 {k}:")
-            pp.pprint(v)
+            field_str = f"📌 {k}:"
+            pretty = pp.pformat(v)
+
+            print(pretty)
+            print(field_str)
+
+            # Logging for debugging
+            logger.info(field_str)
+            logger.info(pretty)
     elif isinstance(result_payload, list):
         print(f"\n📌 Result (list):")
         pp.pprint(result_payload)
+
+        # Logging for debugging
+        pretty = pp.pformat(result_payload)
+        logger.info("📌 Result payload:")
+        logger.info(pretty)
     else:
         print(f"\n📌 Result:")
         print(result_payload)
+
+        # Logging for debugging
+        pretty = pp.pformat(result_payload)
+        logger.info("📌 Result payload:")
+        logger.info(pretty)
 
 
 def run_agent_loop(agent: AgentCore) -> None:
@@ -197,7 +225,9 @@ def main():
 
     # Instantiate agent with the right backend
     try:
-        agent = AgentCore(model_name=args.local_model, api_model_name=args.api_model)
+        agent = AgentCore(
+            local_model_name=args.local_model, api_model_name=args.api_model
+        )
     except Exception as e:
         logger.error(f"Failed to initialize AgentCore: {e}", exc_info=True)
         print(f"❌ Failed to initialize agent: {e}")

@@ -19,7 +19,7 @@ Model hierarchy:
 """
 
 from typing import Any, Dict, List, Optional, Union
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, model_validator, ConfigDict
 from prompts.load_agent_prompts import load_planner_prompts
 
 
@@ -29,8 +29,10 @@ class BaseResponseModel(BaseModel):
     Base model providing common fields for all agent responses.
 
     Attributes:
-        status (str): Indicates success or failure of the agent response. Default is "success".
-        message (Optional[str]): Optional field for feedback, error reporting, or status messages.
+        status (str): Indicates success or failure of the agent response.
+            Default is "success".
+        message (Optional[str]): Optional field for feedback, error reporting,
+            or status messages.
 
     Config:
         arbitrary_types_allowed (bool): Permits non-standard types in subclass models
@@ -40,8 +42,7 @@ class BaseResponseModel(BaseModel):
     status: str = "success"
     message: Optional[str] = None
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 # --- 2. Text and Code Agent Responses ---
@@ -63,14 +64,15 @@ class TextResponse(BaseResponseModel):
 
     content: str
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "status": "success",
                 "message": "Text response processed.",
                 "content": "This is the plain text content.",
             }
         }
+    )
 
 
 class CodeResponse(BaseResponseModel):
@@ -91,14 +93,15 @@ class CodeResponse(BaseResponseModel):
 
     code: str
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "status": "success",
                 "message": "Code response processed.",
                 "code": "print('Hello, world!')",
             }
         }
+    )
 
 
 # --- 3. Generic JSON Response (for untyped or flexible outputs) ---
@@ -122,15 +125,16 @@ class JSONResponse(BaseResponseModel):
 
     data: Union[Dict[str, Any], List[Any]]
 
-    class Config:
-        arbitrary_types_allowed = True
-        json_schema_extra = {
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        json_schema_extra={
             "example": {
                 "status": "success",
                 "message": "JSON response processed.",
                 "data": [{"field": "value"}],
             }
-        }
+        },
+    )
 
 
 # --- 4. Tool Calling: Plan, Call, Results ---
@@ -168,10 +172,11 @@ class ToolSelect(BaseModel):
             raise ValueError("Params must be a dictionary of arguments.")
         return self
 
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {"tool": "list_project_files", "params": {"root": "."}}
         }
+    )
 
 
 class ToolSteps(BaseModel):
@@ -207,8 +212,8 @@ class ToolSteps(BaseModel):
                 raise ValueError("Each step must be a ToolSelect instance.")
         return self
 
-    class Config:
-        schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "steps": [
                     {"tool": "list_project_files", "params": {"root": "."}},
@@ -216,6 +221,7 @@ class ToolSteps(BaseModel):
                 ]
             }
         }
+    )
 
 
 class ToolResult(BaseModel):  # Optional for now; use later
@@ -286,11 +292,12 @@ class IntentClassificationResponse(BaseResponseModel):
 
     intent: str
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "status": "success",
                 "message": "Intent classified.",
                 "intent": "describe_project",
             }
         }
+    )

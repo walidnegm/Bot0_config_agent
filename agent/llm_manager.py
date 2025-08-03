@@ -47,8 +47,9 @@ Example Usage:
 """
 
 import logging
-from typing import Optional, Literal, Dict, Any, Union
 from pathlib import Path
+from typing import Optional, Literal, Dict, Any, Union, Type, Tuple
+from pydantic import BaseModel, ValidationError
 import re
 import json
 import torch
@@ -97,25 +98,17 @@ class LLMManager:
     and generation support.
     """
 
-    def __init__(self, use_openai: bool = False, model_name: Optional[str] = None):
+    def __init__(self, model_name: str):
         """
         Initialize the LLMManager.
 
         Args:
-            use_openai (bool): Whether to use OpenAI backend instead of local models.
+            model_name (str): model name (for looking up model in config files)
         """
-        self.use_openai = use_openai
         self.loader: Optional[ModelLoaderType] = None
         self.tokenizer: Optional[Union[PreTrainedTokenizerBase, Llama]] = None
         self.model: Optional[Any] = None
 
-        if self.use_openai:
-            logger.info(
-                "[LLMManager] ⚠️ Using OpenAI backend, skipping local model loading."
-            )
-            return
-
-        model_name = model_name or "default"
         entry = load_model_config(model_name)
         self.loader = entry.loader
         config: (
@@ -132,12 +125,156 @@ class LLMManager:
 
         self._load_model(config)
 
+    def generate(
+        self,
+        user_prompt: str,
+        system_prompt: Optional[str] = None,
+        max_new_tokens: int = 512,
+        temperature: float = 0.3,
+        expected_res_type: Literal["json", "text", "code"] = "text",
+        response_model: Optional[Type[BaseModel] | Tuple[Type[BaseModel], ...]] = None,
+    ) -> Union[JSONResponse, TextResponse, CodeResponse, ToolSelect, ToolSteps]:
+        """
+        Generate a response using the loaded model. Expects output can be a JSON
+        array of tool calls.
+
+        Delegates to engine-specific _generate_with_*() method.
+        The engine is responsible for handling output formatting (e.g., JSON parsing).
+        """
+        assert (
+            self.model is not None and self.tokenizer is not None
+        ), "Model or tokenizer not initialized."
+
+        # Validate response type before returning
+        if expected_res_type not in ["json", "text", "code"]:
+            raise ValueError(
+                f"Invalid expected_res_type '{expected_res_type}'. "
+                "Must be one of: 'json', 'text', or 'code'."
+            )
+        # System prompt safeguard
+        if system_prompt is None:
+            system_prompt = "You are a helpful assistant."
+
+        # Load generation config from class
+        gen_cfg = self.generation_config.copy()
+
+        # ✅ Allow optional overrides
+        if max_new_tokens is not None:
+            gen_cfg["max_new_tokens"] = max_new_tokens
+        if temperature is not None:
+            gen_cfg["temperature"] = temperature
+
+        # Special setting for llama-cpp
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+
+        logger.info(f"[LLMManager] Messages:\n{json.dumps(messages, indent=2)}\n")
+        logger.debug(f"Generating with {self.loader}")
+
+        try:
+            if self.loader == "awq":
+                response = self._generate_with_awq(
+                    user_prompt=user_prompt,
+                    system_prompt=system_prompt,
+                    expected_res_type=expected_res_type,
+                    **gen_cfg,
+                )
+
+            elif self.loader == "gptq":
+                response = self._generate_with_gptq(
+                    user_prompt=user_prompt,
+                    system_prompt=system_prompt,
+                    expected_res_type=expected_res_type,
+                    **gen_cfg,
+                )
+
+            elif self.loader == "llama_cpp":
+                response = self._generate_with_llama_cpp(
+                    messages=messages, expected_res_type=expected_res_type, **gen_cfg
+                )
+
+            elif self.loader == "transformers":
+                response = self._generate_with_transformers(
+                    user_prompt=user_prompt,
+                    system_prompt=system_prompt,
+                    expected_res_type=expected_res_type,
+                    **gen_cfg,
+                )
+
+            else:
+                raise ValueError(f"Unsupported loader type: {self.loader}")
+
+            if not response:
+                raise ValueError(f"Generated output is empty [].")
+
+            logger.info(f"[LLMManager] 🧪 Generated text (raw):\n{repr(response)}")
+
+            # Validation 1: response_type (code, text, json)
+            validated_response = validate_response_type(response, expected_res_type)
+
+            # Handle JSON responses that may be ToolSelect or ToolSteps
+            if isinstance(validated_response, JSONResponse):
+                validated_response_model = (
+                    validated_response  # <-- set as a new var to be safe
+                )
+                if response_model:
+                    # * Normalize to tuple for flexible membership testing b/c response_model
+                    # * can be a single model or list of models
+                    if not isinstance(response_model, tuple):
+                        response_models = (response_model,)
+                    else:
+                        response_models = response_model
+
+                    # Custom logic: If any response_model is ToolSelect or ToolSteps
+                    if any(m in (ToolSelect, ToolSteps) for m in response_models):
+                        response_data = validated_response_model.data
+                        try:
+                            validated_response_model = validate_tool_selection_or_steps(
+                                response_data
+                            )
+                        except ValidationError as ve:
+                            logger.error("Tool selection validation failed: %s", ve)
+                            raise ValueError(
+                                f"Tool selection validation failed: {ve}"
+                            ) from ve
+                logger.info(
+                    f"validated response content after validate_json_type: \n{validated_response_model}"
+                )
+                return validated_response_model
+
+            elif isinstance(validated_response, (TextResponse, CodeResponse)):
+                return validated_response
+
+            else:
+                logger.error(
+                    f"Validated response has unsupported type: {type(validated_response)}; "
+                    f"Value: {repr(validated_response)}"
+                )
+                raise TypeError(
+                    f"Validated response type {type(validated_response)} is not supported. "
+                    "Expected JSONResponse, ToolSelect, ToolSteps, TextResponse, or CodeResponse."
+                )
+
+        except (json.JSONDecodeError, ValidationError) as e:
+            logger.error(f"Validation or parsing error: {e}")
+            raise ValueError(
+                f"Invalid format received from loader '{self.loader}': {e}"
+            ) from e
+        except Exception as e:
+            logger.error(f"{self.loader} generate() failed: {e}")
+            raise RuntimeError(
+                f"Model generation failed with loader '{self.loader}': {e}"
+            ) from e
+
     def _load_model_with_awq(self, config: AWQLoaderConfig) -> None:
         """
         Load an AWQ quantized model using AutoAWQForCausalLM.from_quantized.
 
         This method ensures that:
-        - The `device` is properly resolved (defaults to 'cuda' if available for AWQ models).
+        - The `device` is properly resolved (defaults to 'cuda' if available for
+            AWQ models).
         - The model is initialized with the positional `model_id_or_path` argument
             passed explicitly.
         This is necessary because `from_quantized()` requires `model_id_or_path`
@@ -145,8 +282,9 @@ class LLMManager:
         to prevent accidental duplication or argument conflicts.
 
         Args:
-            config (AWQLoaderConfig): Configuration object for the AWQ model, including
-                                    model path, device, dtype, and other loader-specific options.
+            config (AWQLoaderConfig):
+                Configuration object for the AWQ model, including model path, device,
+                dtype, and other loader-specific options.
         """
         # Prefer CUDA if available for AWQ models
         if getattr(config, "device", None) in (None, "auto"):
@@ -167,6 +305,29 @@ class LLMManager:
             fuse_layers=False,  # Set to false for now due to hardware constraint (do not have flash attention)
             **loader_kwargs,
         )
+
+        # --- ENFORCE ALL MODEL PARAMS ARE ON THE SAME DEVICE ---
+        try:
+            param_device = next(self.model.parameters()).device
+            logger.info(f"[LLMManager] AWQ model param device: {param_device}")
+            if str(param_device) != self.device and self.device != "auto":
+                logger.warning(
+                    f"[LLMManager] MISMATCH: Model param is on {param_device}, expected {self.device}"
+                )
+                logger.info(
+                    "[LLMManager] Attempting to move model to correct device..."
+                )
+                self.model = self.model.to(
+                    self.device
+                )  # Will work if model supports .to()
+                param_device = next(self.model.parameters()).device
+                logger.info(
+                    f"[LLMManager] Model param device after .to(): {param_device}"
+                )
+        except Exception as e:
+            logger.warning(
+                f"[LLMManager] Could not check or move model param device: {e}"
+            )
 
         tokenizer = AutoTokenizer.from_pretrained(
             config.model_id_or_path, use_fast=True
@@ -219,11 +380,17 @@ class LLMManager:
             config (BaseHFModelConfig): Transformers config as a Pydantic model.
         """
         loader_kwargs = config.model_dump(exclude={"model_id_or_path"})
+        device = loader_kwargs.pop("device", None)
 
         self.model = AutoModelForCausalLM.from_pretrained(
             config.model_id_or_path,
             **loader_kwargs,
         )
+
+        if device:
+            if device == "auto":
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+            self.model = self.model.to(device)
 
         tokenizer = AutoTokenizer.from_pretrained(
             config.model_id_or_path, use_fast=True
@@ -279,12 +446,12 @@ class LLMManager:
         else:
             raise ValueError(f"Unsupported loader: {self.loader}")
 
-    def _format_prompt(self, prompt: str, system_prompt: str = "") -> str:
-        return f"System: {system_prompt}\nUser: {prompt}\nAssistant:"
+    def _format_prompt(self, user_prompt: str, system_prompt: str = "") -> str:
+        return f"System: {system_prompt}\nUser: {user_prompt}\nAssistant:"
 
     def _generate_with_awq(
         self,
-        prompt: str,
+        user_prompt: str,
         system_prompt: str,
         expected_res_type: Literal["json", "text", None] = None,
         **generation_kwargs,
@@ -293,7 +460,7 @@ class LLMManager:
         Generates a response using autoawq library.
 
         Args:
-            prompt (str): User prompt.
+            user_prompt (str): User prompt.
             system_prompt (str): System prompt.
             expected_res_type (Literal["json", "text", None], optional): If "json",
                 attempts to extract a JSON array from the output.
@@ -309,7 +476,7 @@ class LLMManager:
             self.tokenizer, PreTrainedTokenizerBase
         ), "Expected a Hugging Face tokenizer for AWQ models."
 
-        full_prompt = self._format_prompt(prompt, system_prompt)
+        full_prompt = self._format_prompt(user_prompt, system_prompt)
         # input_ids = self.tokenizer(full_prompt, return_tensors="pt", padding=True).input_ids.to(
         #     self.device
         # )
@@ -347,7 +514,7 @@ class LLMManager:
 
     def _generate_with_gptq(
         self,
-        prompt: str,
+        user_prompt: str,
         system_prompt: str,
         expected_res_type: Literal["json", "text", None] = None,
         **generation_kwargs,
@@ -356,7 +523,7 @@ class LLMManager:
         Generate a response from a GPTQ-quantized Hugging Face model.
 
         Args:
-            prompt (str): The user input prompt.
+            user_prompt (str): The user input prompt.
             system_prompt (str): The system-level instruction or behavior guide.
             expected_res_type (Literal["json", "text", None], optional):
                 If "json", attempts to extract a JSON array from the output.
@@ -371,7 +538,7 @@ class LLMManager:
             self.tokenizer, PreTrainedTokenizerBase
         ), "Expected a Hugging Face tokenizer for GPTQ models."
 
-        full_prompt = self._format_prompt(prompt, system_prompt)
+        full_prompt = self._format_prompt(user_prompt, system_prompt)
         inputs = self.tokenizer(full_prompt, return_tensors="pt").to(self.device)
 
         logger.debug(f"[GPTQ] 🔁 Full prompt:\n{inputs}")
@@ -467,7 +634,7 @@ class LLMManager:
 
     def _generate_with_transformers(
         self,
-        prompt: str,
+        user_prompt: str,
         system_prompt: str,
         expected_res_type: Literal["json", "text", None] = None,
         **generation_kwargs,
@@ -476,7 +643,7 @@ class LLMManager:
         Generate a response using a standard Transformers model.
 
         Args:
-            prompt (str): The user input prompt.
+            user_prompt (str): The user input prompt.
             system_prompt (str): System-level behavior instruction.
             expected_res_type (str | None): Optionally extract JSON from output.
             **generation_kwargs: All generation params (max_new_tokens, temperature, etc.)
@@ -487,7 +654,7 @@ class LLMManager:
         assert self.model is not None and self.tokenizer is not None
         assert isinstance(self.tokenizer, PreTrainedTokenizerBase)
 
-        full_prompt = self._format_prompt(prompt, system_prompt)
+        full_prompt = self._format_prompt(user_prompt, system_prompt)
         logger.debug(f"[Transformers] 🔁 Full prompt:\n{full_prompt}")
 
         input_ids = self.tokenizer(full_prompt, return_tensors="pt").input_ids.to(
@@ -520,122 +687,3 @@ class LLMManager:
             return "[]"
 
         return decoded
-
-    def generate(
-        self,
-        prompt: str,
-        max_new_tokens: int = 256,
-        temperature: float = 0.3,
-        system_prompt: Optional[str] = None,
-        expected_res_type: Literal["json", "text", None] = "text",
-    ) -> Union[JSONResponse, TextResponse, CodeResponse, ToolSelect, ToolSteps]:
-        """
-        Generate a response using the loaded model. Expects output can be a JSON
-        array of tool calls.
-
-        Delegates to engine-specific _generate_with_*() method.
-        The engine is responsible for handling output formatting (e.g., JSON parsing).
-        """
-        if self.use_openai:
-            raise RuntimeError("OpenAI mode is active — local generation disabled.")
-
-        assert (
-            self.model is not None and self.tokenizer is not None
-        ), "Model or tokenizer not initialized."
-
-        # Validate response type before returning
-        if expected_res_type not in ["json", "text", "code"]:
-            raise ValueError(
-                f"Invalid expected_res_type '{expected_res_type}'. "
-                "Must be one of: 'json', 'text', or 'code'."
-            )
-        # System prompt
-        system_prompt = "You are a helpful assistant."
-
-        # Load generation config from class
-        gen_cfg = self.generation_config.copy()
-
-        # ✅ Allow optional overrides
-        if max_new_tokens is not None:
-            gen_cfg["max_new_tokens"] = max_new_tokens
-        if temperature is not None:
-            gen_cfg["temperature"] = temperature
-
-        # Special setting for llama-cpp
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt},
-        ]
-
-        logger.info(f"[LLMManager] Messages:\n{json.dumps(messages, indent=2)}\n")
-        logger.debug(f"Generating with {self.loader}")
-
-        try:
-            if self.loader == "awq":
-                response = self._generate_with_awq(
-                    prompt=prompt,
-                    system_prompt=system_prompt,
-                    expected_res_type=expected_res_type,
-                    **gen_cfg,
-                )
-
-            elif self.loader == "gptq":
-                response = self._generate_with_gptq(
-                    prompt=prompt,
-                    system_prompt=system_prompt,
-                    expected_res_type=expected_res_type,
-                    **gen_cfg,
-                )
-
-            elif self.loader == "llama_cpp":
-                response = self._generate_with_llama_cpp(
-                    messages=messages, expected_res_type=expected_res_type, **gen_cfg
-                )
-
-            elif self.loader == "transformers":
-                response = self._generate_with_transformers(
-                    prompt=prompt,
-                    system_prompt=system_prompt,
-                    expected_res_type=expected_res_type,
-                    **gen_cfg,
-                )
-
-            else:
-                raise ValueError(f"Unsupported loader type: {self.loader}")
-
-            if not response:
-                raise ValueError(f"Generated output is empty [].")
-
-            logger.info(f"[LLMManager] 🧪 Generated text (raw):\n{repr(response)}")
-
-            validated_response = validate_response_type(response, expected_res_type)
-
-            # Handle JSON responses that may be ToolSelect or ToolSteps
-            if isinstance(validated_response, JSONResponse):
-                try:
-                    validated_response = validate_tool_selection_or_steps(
-                        validated_response.data
-                    )
-                    return validated_response
-                except Exception as e:
-                    logger.error(
-                        f"Failed to parse JSONResponse.data as ToolSelect/ToolSteps: {e}"
-                    )
-                    raise
-
-            elif isinstance(validated_response, (TextResponse, CodeResponse)):
-                return validated_response
-
-            else:
-                logger.error(
-                    f"Validated response has unsupported type: {type(validated_response)}; "
-                    f"Value: {repr(validated_response)}"
-                )
-                raise TypeError(
-                    f"Validated response type {type(validated_response)} is not supported. "
-                    "Expected JSONResponse, ToolSelect, ToolSteps, TextResponse, or CodeResponse."
-                )
-
-        except Exception as e:
-            logger.error(f"❌ [LLMManager] Generation failed: {e}", exc_info=True)
-            raise RuntimeError(f"LLMManager generation failed: {e}") from e

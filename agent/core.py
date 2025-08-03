@@ -6,6 +6,7 @@ Supports both local and cloud (API) LLM model selection via explicit arguments.
 
 import logging
 from typing import Optional, List, Dict, Any
+import asyncio
 from agent.executor import ToolExecutor
 from agent.planner import Planner
 from tools.tool_registry import ToolRegistry
@@ -39,7 +40,9 @@ class AgentCore:
         self.executor = ToolExecutor()
         logger.info("[AgentCore] ✅ Initialization complete.")
 
-    def handle_instruction(self, instruction: str) -> List[Dict[str, Any]]:
+    def handle_instruction(
+        self, instruction: str
+    ) -> List[Dict[str, Any]]:  # ☑️ updated this to allow async function calling
         """
         Process a user instruction: plan tool usage, execute tools, and return results.
 
@@ -52,13 +55,17 @@ class AgentCore:
         logger.info(f"[AgentCore] 🧠 Received instruction: {instruction}")
 
         try:
-            logger.debug("[AgentCore] 🧭 Calling planner.plan()…")
-            plan = self.planner.plan(instruction)
+            logger.debug("[AgentCore] 🧭 Calling planner.plan_async()…")
+
+            # Create an event loop with asyncio.run(), runs the coroutine to completion,
+            # then closes the loop and returns the result.
+            plan = asyncio.run(self.planner.plan_async(instruction))
             logger.debug("[AgentCore] ✅ Plan generated.")
 
             logger.debug("[AgentCore] 🚀 Executing plan…")
-            results = self.executor.execute_plan(plan, instruction)
+            results = self.executor.execute_plan(plan=plan)
             logger.debug("[AgentCore] ✅ Execution complete.")
+
             return results
 
         except Exception as e:

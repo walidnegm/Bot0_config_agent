@@ -10,7 +10,7 @@ planner:
     
     ## Available Tools
     - summarize_config: Summarize configuration files (params: path)
-    - llm_response: Generate LLM response for queries (params: query, context?)
+    - llm_response_async: Generate LLM response for queries (params: query, context?)
     - aggregate_file_content: Combine content from multiple files (params: paths[])
     - read_file: Read contents of a specific file (params: path)
     - seed_parser: Parse seed/template files (params: path, format?)

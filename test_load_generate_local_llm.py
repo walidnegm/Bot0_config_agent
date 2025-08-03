@@ -29,7 +29,7 @@ def main():
     prompt = "Q: Write a Python function that returns the sum of two numbers."
     logger.info(f"\n Prompt: {prompt}")
 
-    response = llm.generate(prompt=prompt, max_new_tokens=128, temperature=0.3)
+    response = llm.generate(user_prompt=prompt, max_new_tokens=128, temperature=0.3)
     logger.info(f"\nResponse: \n{response}")
     print(f"\nResponse: \n{response}")
 
