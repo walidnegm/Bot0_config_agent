@@ -21,7 +21,7 @@ MODEL_NAMES = [
 
 
 def main():
-    model_name = MODEL_NAMES[9]
+    model_name = MODEL_NAMES[5]
     logger.info(f"Testing Model: {model_name}")
 
     llm = LLMManager(model_name=model_name)

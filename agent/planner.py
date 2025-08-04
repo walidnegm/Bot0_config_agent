@@ -17,9 +17,7 @@ from tools.tool_registry import ToolRegistry
 
 # from agent import llm_openai  # commented out: use a different api call function
 from agent.intent_classifier_core import classify_describe_only
-from agent.llm_manager import (
-    LLMManager,
-)
+from agent.llm_manager import LLMManager, get_llm_manager
 from utils.llm_api_async import (
     call_openai_api_async,
     call_anthropic_api_async,
@@ -88,10 +86,8 @@ class Planner:
 
         if self.api_model_name:
             logger.info(f"[Planner] ⚙️ Using API/cloud LLM: {self.api_model_name}")
-            self.llm_manager = None
         elif self.local_model_name:
             logger.info(f"[Planner] ⚙️ Using local LLM: {self.local_model_name}")
-            self.llm_manager = LLMManager(model_name=self.local_model_name)
         else:
             logger.error("[Planner] No LLM model specified!")
             raise ValueError("Must specify either local_model_name or api_model_name.")
@@ -323,7 +319,7 @@ class Planner:
         response_model: Optional[Type[BaseModel]] = None,
     ) -> TextResponse | CodeResponse | JSONResponse | ToolSelect | ToolSteps:
         """
-        Call the local LLM with the given prompt and parameters.
+        Call the local LLM with the given prompt and parameters. Use cache to save VRAM
 
         Args:
             prompt (str): The formatted prompt.
@@ -335,7 +331,8 @@ class Planner:
         """
         assert self.local_model_name is not None
 
-        llm = LLMManager(self.local_model_name)
+        llm = get_llm_manager(self.local_model_name)
+
         validated_result = llm.generate(
             user_prompt=user_prompt,
             system_prompt=system_prompt,

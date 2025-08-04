@@ -53,6 +53,7 @@ from pydantic import BaseModel, ValidationError
 import re
 import json
 import torch
+import gc
 from transformers import AutoTokenizer, PreTrainedTokenizerBase, AutoModelForCausalLM
 from llama_cpp import Llama
 from gptqmodel import GPTQModel  # Ensure GPTQModel is installed or available
@@ -91,6 +92,18 @@ except Exception as e:
 
 ModelLoaderType = Literal["awq", "gptq", "llama_cpp", "transformers"]
 
+_LLM_MANAGER_CACHE = {}
+
+
+#! Single instance of model
+def get_llm_manager(model_name):
+    """
+    Shared singleton getter (global cache to avoid reloading model into VRAM)
+    """
+    if model_name not in _LLM_MANAGER_CACHE:
+        _LLM_MANAGER_CACHE[model_name] = LLMManager(model_name)
+    return _LLM_MANAGER_CACHE[model_name]
+
 
 class LLMManager:
     """
@@ -124,6 +137,38 @@ class LLMManager:
         logger.info(f"[LLMManager] 📦 Initializing model: {model_name} ({self.loader})")
 
         self._load_model(config)
+
+    def cleanup_vram_cache(self):
+        """
+        Safely deletes the previous model, runs garbage collection,
+        and empties the CUDA cache. Logs VRAM usage before and after.
+        Returns None (the new value to assign to your model variable).
+        """
+        # Log VRAM before cleanup
+        if torch.cuda.is_available():
+            free, total = torch.cuda.mem_get_info()
+            logger.info(
+                f"[LLMManager] CUDA memory before cleanup: {free/1024/1024:.1f} MB free / {total/1024/1024:.1f} MB total"
+            )
+
+        if hasattr(self, "model") and self.model is not None:
+            logger.info("[LLMManager] Releasing old model from memory...")
+            del self.model
+            self.model = None
+
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
+            # Log VRAM after cleanup
+            free, total = torch.cuda.mem_get_info()
+            logger.info(
+                f"[LLMManager] CUDA memory after cleanup: {free/1024/1024:.1f} MB free / {total/1024/1024:.1f} MB total"
+            )
+        else:
+            logger.info("[LLMManager] GPU not available.")
+
+        return None
 
     def generate(
         self,
@@ -418,6 +463,8 @@ class LLMManager:
         Raises:
             ValueError: If the loader type is unsupported.
         """
+        self.cleanup_vram_cache()  # Clear up VRAM first!
+
         # Set device from config if available (BaseHFModelConfig), else infer
         self.device = getattr(
             config, "device", "cuda" if torch.cuda.is_available() else "cpu"
