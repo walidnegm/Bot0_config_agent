@@ -138,7 +138,7 @@ class JSONResponse(BaseResponseModel):
 
 
 # --- 4. Tool Calling: Plan, Call, Results ---
-class ToolSelect(BaseModel):
+class ToolCall(BaseModel):
     """
     Represents a single tool selection/action in an agent workflow.
 
@@ -179,16 +179,16 @@ class ToolSelect(BaseModel):
     )
 
 
-class ToolSteps(BaseModel):
+class ToolChain(BaseModel):
     """
     Represents a multi-step tool-calling plan.
 
     Attributes:
-        steps (List[ToolSelect]): Ordered list of tool selections/actions.
+        steps (List[ToolCall]): Ordered list of tool selections/actions.
 
     Validation:
         - Ensures at least one step is present.
-        - Ensures every item is a valid ToolSelect instance.
+        - Ensures every item is a valid ToolCall instance.
 
     Example:
         {
@@ -199,17 +199,17 @@ class ToolSteps(BaseModel):
         }
     """
 
-    steps: List[ToolSelect] = Field(
+    steps: List[ToolCall] = Field(
         ..., description="Ordered list of tool selections (multi-step plan)."
     )
 
     @model_validator(mode="after")
     def validate_steps(self):
         if not self.steps or not isinstance(self.steps, list):
-            raise ValueError("ToolSteps must have at least one ToolSelect in 'steps'.")
+            raise ValueError("ToolChain must have at least one ToolCall in 'steps'.")
         for step in self.steps:
-            if not isinstance(step, ToolSelect):
-                raise ValueError("Each step must be a ToolSelect instance.")
+            if not isinstance(step, ToolCall):
+                raise ValueError("Each step must be a ToolCall instance.")
         return self
 
     model_config = ConfigDict(

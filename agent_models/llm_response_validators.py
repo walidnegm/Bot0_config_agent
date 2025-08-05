@@ -85,8 +85,8 @@ def is_valid_llm_response(
             CodeResponse,
             JSONResponse,
             TextResponse,
-            ToolSelect,
-            ToolSteps,
+            ToolCall,
+            ToolChain,
         )
     return isinstance(obj, model_types)
 
@@ -136,43 +136,43 @@ def validate_response_type(
 
 def validate_tool_selection_or_steps(
     data: Any,
-) -> Union["ToolSelect", "ToolSteps"]:
+) -> Union["ToolCall", "ToolChain"]:
     """
-    Validates and parses a tool-calling response as either a single ToolSelect
-        or ToolSteps.
+    Validates and parses a tool-calling response as either a single ToolCall
+        or ToolChain.
 
     Args:
         data (Any): Could be a dict (single tool call), a list (multiple calls),
-                    a ToolSelect, or ToolSteps.
+                    a ToolCall, or ToolChain.
 
     Returns:
-        ToolSelect or ToolSteps: The validated model instance.
+        ToolCall or ToolCahin: The validated model instance.
 
     Raises:
         ValueError: If the input data cannot be parsed as a valid tool
             selection or steps.
     """
-    # Already a ToolSelect or ToolSteps? Return as is
-    if isinstance(data, (ToolSelect, ToolSteps)):
+    # Already a ToolCall or ToolChain Return as is
+    if isinstance(data, (ToolCall, ToolChain)):
         return data
 
     # If data is a dict and looks like a tool call
     if isinstance(data, dict) and "tool" in data and "params" in data:
         try:
-            return ToolSelect(**data)
+            return ToolCall(**data)
         except Exception as e:
-            raise ValueError(f"Failed to parse as ToolSelect: {e}")
+            raise ValueError(f"Failed to parse as ToolCall: {e}")
 
     # If data is a list, treat as multi-step
     if isinstance(data, list):
         try:
             steps = [
-                ToolSelect(**item) if not isinstance(item, ToolSelect) else item
+                ToolCall(**item) if not isinstance(item, ToolCall) else item
                 for item in data
             ]
-            return ToolSteps(steps=steps)
+            return ToolChain(steps=steps)
         except Exception as e:
-            raise ValueError(f"Failed to parse as ToolSteps: {e}")
+            raise ValueError(f"Failed to parse as ToolChain: {e}")
 
     raise ValueError(
         f"Data is not valid for tool selection or steps. Got: {type(data)}, value: {data!r}"

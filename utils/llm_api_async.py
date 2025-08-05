@@ -49,8 +49,8 @@ from agent_models.llm_response_models import (
     CodeResponse,
     JSONResponse,
     TextResponse,
-    ToolSelect,
-    ToolSteps,
+    ToolCall,
+    ToolChain,
 )
 from utils.get_llm_api_keys import (
     get_anthropic_api_key,
@@ -129,7 +129,7 @@ async def call_api_async(
     max_tokens: int,
     llm_provider: str,
     response_model: Optional[Type[BaseModel] | Tuple[Type[BaseModel], ...]] = None,
-) -> Union[JSONResponse, CodeResponse, TextResponse, ToolSelect, ToolSteps]:
+) -> Union[JSONResponse, CodeResponse, TextResponse, ToolCall, ToolChain]:
     """
     Unified async LLM API calling and response validation function.
 
@@ -154,11 +154,11 @@ async def call_api_async(
         max_tokens: Maximum tokens to generate in the response.
         llm_provider: The LLM provider key ("openai", "anthropic").
         response_model: (Optional) Pydantic model to validate response
-            (e.g., ToolSteps).
+            (e.g., ToolChain).
 
     Returns:
         One of the project's structured response types (JSONResponse, CodeResponse,
-        TextResponse, ToolSelect, ToolSteps), validated and ready for further use.
+        TextResponse, ToolCall, ToolChain), validated and ready for further use.
 
     Raises:
         ValueError: For invalid, empty, or non-parseable API responses, or
@@ -191,7 +191,7 @@ async def call_api_async(
                 temperature=0.2,
                 max_tokens=512,
                 llm_provider="openai"
-                response_model=ToolSelect   # or ToolSteps
+                response_model=ToolChain
             )
     """
     try:
@@ -265,8 +265,8 @@ async def call_api_async(
                 else:
                     response_models = response_model
 
-                # Custom logic: If any response_model is ToolSelect or ToolSteps
-                if any(m in (ToolSelect, ToolSteps) for m in response_models):
+                # Custom logic: If any response_model is ToolCall or ToolChain
+                if any(m in (ToolCall, ToolChain) for m in response_models):
                     response_data = validated_response_model.data
                     try:
                         validated_response_model = validate_tool_selection_or_steps(
@@ -301,7 +301,7 @@ async def call_openai_api_async(
     max_tokens: int = 1056,
     client: Optional[AsyncOpenAI] = None,  # Default to global client
     response_model: Optional[Type[BaseModel]] = None,
-) -> Union[JSONResponse, TextResponse, CodeResponse, ToolSelect, ToolSteps]:
+) -> Union[JSONResponse, TextResponse, CodeResponse, ToolCall, ToolChain]:
     """
     Asynchronous convenience wrapper for calling the OpenAI Chat Completions API.
 
@@ -323,7 +323,7 @@ async def call_openai_api_async(
 
     Returns:
         A validated, structured response model (JSONResponse, TextResponse, CodeResponse,
-        ToolSelect, or ToolSteps), depending on the prompt and output format.
+        ToolCall, or ToolChain), depending on the prompt and output format.
 
     Raises:
         ValueError: For invalid or failed responses.
@@ -360,7 +360,7 @@ async def call_anthropic_api_async(
     max_tokens: int = 1056,
     client: Optional[AsyncAnthropic] = None,
     response_model: Optional[Type[BaseModel]] = None,
-) -> Union[JSONResponse, TextResponse, CodeResponse, ToolSelect, ToolSteps]:
+) -> Union[JSONResponse, TextResponse, CodeResponse, ToolCall, ToolChain]:
     """
     Asynchronous convenience wrapper for calling the Anthropic Messages API.
 
@@ -383,7 +383,7 @@ async def call_anthropic_api_async(
 
     Returns:
         A validated, structured response model (JSONResponse, TextResponse, CodeResponse,
-        ToolSelect, or ToolSteps), depending on the prompt and output format.
+        ToolCall, or ToolChain), depending on the prompt and output format.
 
     Raises:
         ValueError: For invalid or failed responses.

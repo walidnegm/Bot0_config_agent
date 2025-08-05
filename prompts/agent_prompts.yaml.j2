@@ -15,6 +15,62 @@ evaluator:
     Task: {task}
     Response: {response}
 
+intent_classifier:
+  task_decomposition:
+    description: "Classifies whether a user request is single-step or multi-step."
+    system_prompt: |
+      You are an LLM task decomposition classifier.
+    single_vs_multi_step_prompt: |
+      Analyze the user request. 
+      If the request can be answered in one LLM call, output "single-step".
+      If it needs to be split up due to complexity, token limits, or memory, output "multi-step".
+      
+      Only respond with "Single-step" or "Multi-step". Do not include any other text or labels.
+
+      Examples:
+      Request: List all files in the project.
+      Single-step
+
+      Request: Summarize the config.yaml file.
+      Single-step
+
+      Request: Summarize every Python file in this 200-file repo.
+      Multi-step
+
+      Request: Read all requirements.txt and then summarize the dependencies.
+      Multi-step
+
+      Request: Find secrets in all project files and write a report.
+      Multi-step
+
+    user_prompt_template: |
+      Request: {user_task}
+      
+  describe_only:
+    description: "Detects if the user is asking to describe, summarize, or give an overview of the project."
+    system_prompt: |
+      You are an intent classifier for project summary requests.
+    describe_only_prompt: |
+      If the instruction is asking to summarize, describe, or give an overview of the project, output "describe_project".
+      Otherwise, output "unknown".
+      Only respond with "describe_project" or "unknown". Do not include any other text or labels.
+
+      Examples:
+      Instruction: Describe this project.
+      describe_project
+
+      Instruction: Give an overview of the project.
+      describe_project
+
+      Instruction: What is CUDA?
+      unknown
+
+      Instruction: List all files in the repo.
+      unknown
+
+    user_prompt_template: |
+      Instruction: {user_task}
+
 planner:
   system_prompt: |
     You are a {{role | default("tool-planning")}} assistant for a command-line automation agent.

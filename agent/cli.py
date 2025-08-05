@@ -4,21 +4,23 @@ cli.py
 
 Usage examples:
 
-  # Run interactively with a local model
-  python agent/cli.py --local-model llama_2_7b_chat
+# Run interactively with a local model
+python agent/cli.py --local-model llama_2_7b_chat
 
-  # Run interactively with a cloud API model (e.g., OpenAI, Anthropic, Gemini)
-  python agent/cli.py --api-model gpt-4o
+# Run interactively with a cloud API model (e.g., OpenAI, Anthropic, Gemini)
+python agent/cli.py --api-model gpt-4o
 
-  # Run one-off command with a local model
-  python agent/cli.py --local-model llama_2_7b_chat --once "where are my model files"
+# Run one-off command with a local model
+python agent/cli.py --local-model llama_2_7b_chat --once "where are my model files"
 
-  # Run one-off command with a cloud API model
-  python agent/cli.py --api-model claude-3-haiku-20240307 --once "summarize project config"
-  python -m agent.cli --api-model gpt-4.1-mini --once "where are my config files?"
+# Run one-off command with a cloud API model
+python agent/cli.py --api-model claude-3-haiku-20240307 --once "summarize project config"
+python -m agent.cli --api-model gpt-4.1-mini --once "where are my config files?"
+python -m agent.cli --api-model claude-sonnet-4-20250514 --once "First find all config files in the project (excluding venv, models, etc.), then summarize each."
 
-  # Show all available models and their descriptions
-  python agent/cli.py --show-models-help
+
+# Show all available models and their descriptions
+python agent/cli.py --show-models-help
 
 Notes:
 - You must specify exactly one of --local-model or --api-model.

@@ -70,8 +70,8 @@ from agent_models.llm_response_models import (
     JSONResponse,
     CodeResponse,
     TextResponse,
-    ToolSelect,
-    ToolSteps,
+    ToolCall,
+    ToolChain,
 )
 from agent_models.llm_response_validators import (
     validate_response_type,
@@ -174,11 +174,9 @@ class LLMManager:
         self,
         user_prompt: str,
         system_prompt: Optional[str] = None,
-        max_new_tokens: int = 512,
-        temperature: float = 0.3,
         expected_res_type: Literal["json", "text", "code"] = "text",
         response_model: Optional[Type[BaseModel] | Tuple[Type[BaseModel], ...]] = None,
-    ) -> Union[JSONResponse, TextResponse, CodeResponse, ToolSelect, ToolSteps]:
+    ) -> Union[JSONResponse, TextResponse, CodeResponse, ToolCall, ToolChain]:
         """
         Generate a response using the loaded model. Expects output can be a JSON
         array of tool calls.
@@ -202,12 +200,8 @@ class LLMManager:
 
         # Load generation config from class
         gen_cfg = self.generation_config.copy()
-
-        # ✅ Allow optional overrides
-        if max_new_tokens is not None:
-            gen_cfg["max_new_tokens"] = max_new_tokens
-        if temperature is not None:
-            gen_cfg["temperature"] = temperature
+        if not gen_cfg:
+            raise ValueError("No generation config found for this model!")
 
         # Special setting for llama-cpp
         messages = [
@@ -259,7 +253,7 @@ class LLMManager:
             # Validation 1: response_type (code, text, json)
             validated_response = validate_response_type(response, expected_res_type)
 
-            # Handle JSON responses that may be ToolSelect or ToolSteps
+            # Handle JSON responses that may be ToolCall or ToolChain
             if isinstance(validated_response, JSONResponse):
                 validated_response_model = (
                     validated_response  # <-- set as a new var to be safe
@@ -272,8 +266,8 @@ class LLMManager:
                     else:
                         response_models = response_model
 
-                    # Custom logic: If any response_model is ToolSelect or ToolSteps
-                    if any(m in (ToolSelect, ToolSteps) for m in response_models):
+                    # Custom logic: If any response_model is ToolCall or ToolChain
+                    if any(m in (ToolCall, ToolChain) for m in response_models):
                         response_data = validated_response_model.data
                         try:
                             validated_response_model = validate_tool_selection_or_steps(
@@ -299,7 +293,7 @@ class LLMManager:
                 )
                 raise TypeError(
                     f"Validated response type {type(validated_response)} is not supported. "
-                    "Expected JSONResponse, ToolSelect, ToolSteps, TextResponse, or CodeResponse."
+                    "Expected JSONResponse, ToolCall, ToolChain, TextResponse, or CodeResponse."
                 )
 
         except (json.JSONDecodeError, ValidationError) as e:

@@ -12,12 +12,11 @@ import json
 from typing import Dict, Any, List, Optional, Union, Type, Literal
 from pydantic import BaseModel, ValidationError
 import asyncio
-import concurrent.futures
 from tools.tool_registry import ToolRegistry
 
 # from agent import llm_openai  # commented out: use a different api call function
 from agent.intent_classifier_core import classify_describe_only
-from agent.llm_manager import LLMManager, get_llm_manager
+from agent.llm_manager import get_llm_manager
 from utils.llm_api_async import (
     call_openai_api_async,
     call_anthropic_api_async,
@@ -27,8 +26,8 @@ from agent_models.llm_response_models import (
     JSONResponse,
     TextResponse,
     CodeResponse,
-    ToolSelect,
-    ToolSteps,
+    ToolCall,
+    ToolChain,
 )
 from prompts.load_agent_prompts import load_planner_prompts, load_summarizer_prompt
 from configs.api_models import (
@@ -51,6 +50,8 @@ ANTHROPIC = "anthropic"  # Standardized to lowercase
 #     tool: str
 #     params: Dict[str, Any]
 RESPONSE_TYPE = ["code", "json", "text"]
+API_LLM_MAX_TOKEN_DEFAULT: int = 1024
+API_LLM_TEMPERATURE_DEFAULT: float = 0.2
 
 
 def validate_api_model_name(model_name: str) -> None:
@@ -108,8 +109,8 @@ class Planner:
         JSONResponse,
         TextResponse,
         CodeResponse,
-        ToolSelect,
-        ToolSteps,
+        ToolCall,
+        ToolChain,
     ]:
         """
         Asynchronously routes a language model call to either a remote API LLM (e.g., OpenAI,
@@ -124,7 +125,7 @@ class Planner:
                 max_tokens, response_model).
 
         Returns:
-            Union[dict, JSONResponse, TextResponse, CodeResponse, ToolSelect, ToolSteps]:
+            Union[dict, JSONResponse, TextResponse, CodeResponse, ToolCall, ToolChain]:
                 The LLM's response as a structured Pydantic model or a plain dict,
                 depending on provider and settings.
 
@@ -197,7 +198,7 @@ class Planner:
             response_type = "json"
         # Use response_model->call_llm functionsmodels->determine how to validate response
         if any("tools" in key for key in prompts_dic.keys()):
-            response_model = ToolSteps | ToolSteps
+            response_model = ToolChain | ToolChain
 
         # Combine prompts
         system_prompt = prompts_dic.get("system_prompt", "")
@@ -246,16 +247,14 @@ class Planner:
     async def _call_api_llm_async(
         self,
         prompt: str,
-        max_tokens: int = 512,
-        temperature: float = 0.2,
         expected_res_type: Literal["json", "text", "code"] = "text",
         response_model: Optional[Type[BaseModel]] = None,
     ) -> Union[
         JSONResponse,
         TextResponse,
         CodeResponse,
-        ToolSelect,
-        ToolSteps,
+        ToolCall,
+        ToolChain,
     ]:
         """
         *Async version of the method.
@@ -280,8 +279,12 @@ class Planner:
         validate_api_model_name(
             self.api_model_name
         )  # Raises error if model names do not matach internal config
+
+        # Set api llm parameters
         llm_provider = get_llm_provider(self.api_model_name)
         model_id = self.api_model_name
+        max_tokens = API_LLM_MAX_TOKEN_DEFAULT
+        temperature = API_LLM_TEMPERATURE_DEFAULT
 
         # Choose the appropriate LLM API
         if llm_provider.lower() == "openai":
@@ -298,7 +301,7 @@ class Planner:
             validated_result = await call_anthropic_api_async(
                 prompt=prompt,
                 model_id=model_id,
-                expected_res_type="json",
+                expected_res_type=expected_res_type,
                 temperature=temperature,
                 max_tokens=max_tokens,
                 response_model=response_model,
@@ -313,11 +316,9 @@ class Planner:
         self,
         user_prompt: str,
         system_prompt: Optional[str] = None,
-        max_new_tokens: int = 512,
-        temperature: float = 0.2,
         expected_res_type: Literal["json", "text", "code"] = "text",
         response_model: Optional[Type[BaseModel]] = None,
-    ) -> TextResponse | CodeResponse | JSONResponse | ToolSelect | ToolSteps:
+    ) -> TextResponse | CodeResponse | JSONResponse | ToolCall | ToolChain:
         """
         Call the local LLM with the given prompt and parameters. Use cache to save VRAM
 
@@ -336,8 +337,6 @@ class Planner:
         validated_result = llm.generate(
             user_prompt=user_prompt,
             system_prompt=system_prompt,
-            max_new_tokens=max_new_tokens,
-            temperature=temperature,
             expected_res_type=expected_res_type,
             response_model=response_model,
         )
@@ -345,13 +344,13 @@ class Planner:
         return validated_result  # Return pydantic model
 
     def _parse_and_validate_tool_calls(
-        self, tool_or_tools: Union[ToolSelect, ToolSteps], instruction: str
+        self, tool_or_tools: Union[ToolCall, ToolChain], instruction: str
     ) -> List[dict]:
         """
         Parses and validates one or more tool calls for execution.
 
-        Accepts either a single ToolSelect (representing a one-step tool plan)
-        or a ToolSteps (multi-step plan containing a list of ToolSelects), both as
+        Accepts either a single ToolCall (representing a one-step tool plan)
+        or a ToolChain (multi-step plan containing a list of ToolCalls), both as
         Pydantic models.
 
         For each tool call:
@@ -361,8 +360,8 @@ class Planner:
                 valid steps remain.
 
         Args:
-            tool_or_tools (Union[ToolSelect, ToolSteps]):
-                A ToolSelect instance (for a single-step plan) or a ToolSteps instance
+            tool_or_tools (Union[ToolCall, ToolChain]):
+                A ToolCall instance (for a single-step plan) or a ToolChain instance
                 (for a multi-step plan).
             instruction (str):
                 The original user instruction, used for logging and fallback response
@@ -374,14 +373,14 @@ class Planner:
                         If validation fails, returns a fallback plan.
         """
 
-        # Normalize to a list of ToolSelect for processing
-        if isinstance(tool_or_tools, ToolSelect):
+        # Normalize to a list of ToolCall for processing
+        if isinstance(tool_or_tools, ToolCall):
             steps = [tool_or_tools]
-        elif isinstance(tool_or_tools, ToolSteps):
+        elif isinstance(tool_or_tools, ToolChain):
             steps = tool_or_tools.steps
         else:
             logger.error(
-                f"[Planner] input is not ToolSelect or ToolSteps: got {type(tool_or_tools)}"
+                f"[Planner] input is not ToolCall or ToolChain: got {type(tool_or_tools)}"
             )
             return self._fallback_llm_response(instruction)
 
