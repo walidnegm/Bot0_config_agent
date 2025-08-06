@@ -11,3 +11,6 @@ MODEL_CONFIGS_YAML_FILE = CONFIGS_DIR / "model_configs.yaml"
 
 PROMPTS_DIR = ROOT_DIR / "prompts"
 AGENT_PROMPTS = PROMPTS_DIR / "agent_prompts.yaml.j2"
+
+TOOLS_DIR = ROOT_DIR / "tools"
+TOOL_REGISTRY = TOOLS_DIR / "tool_registry.json"

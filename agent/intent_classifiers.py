@@ -1,38 +1,52 @@
-# agent/intent_classifier.py
-# agent/intent_classifier.py
+"""
+agent/intent_classifier.py
+
+Intent classification utilities for agent task routing and decomposition.
+
+This module provides async classifier functions for agent pipelines:
+- Classifies whether a user instruction is a project description request or a more complex task.
+- Distinguishes between single-step and multi-step tasks to drive planner logic.
+
+Example Usage:
+    import asyncio
+    from agent.planner import Planner
+
+    import logging
+    logging.basicConfig(level=logging.INFO)
+
+    # Instantiate your planner with the appropriate model
+    planner = Planner(local_model_name="llama_2_7b_chat")
+
+    # Classify project description intent
+    print("Describe only:")
+    print(asyncio.run(classify_describe_only("Describe this project.", planner)))
+
+    # Classify task decomposition (single-step vs. multi-step)
+    print("Task decomposition:")
+    print(
+        asyncio.run(
+            classify_task_decomposition_async(
+                "Summarize every Python file in this 200-file repo.", planner
+            )
+        )
+    )
+"""
+
 from pathlib import Path
-import re
-import yaml
 from typing import Optional
 import logging
-
+import yaml
+from prompts.load_agent_prompts import (
+    load_describe_only_prompt,
+    load_task_decomposition_prompt,
+)
 from agent.planner import Planner  # <-- import your Planner with dispatch_llm_async
-from configs.paths import AGENT_PROMPTS
+
 
 logger = logging.getLogger(__name__)
 
 
-def load_intent_templates(path: Path = AGENT_PROMPTS):
-    """Load intent classifier prompt templates from YAML file."""
-    try:
-        with open(path, "r") as f:
-            return yaml.safe_load(f)["intent_classifier"]
-    except Exception as e:
-        logger.error(f"[IntentClassifier] Failed to load YAML: {e}")
-        raise
-
-
-# Load once at module level
-try:
-    prompts = load_intent_templates()
-except Exception as e:
-    prompts = {}
-    logger.error(
-        "[IntentClassifier] Failed to load intent classifier prompts at import."
-    )
-
-
-async def classify_describe_only(
+async def classify_describe_only_async(
     instruction: str,
     planner: "Planner",
 ) -> str:
@@ -47,13 +61,13 @@ async def classify_describe_only(
         str: "describe_project", "unknown", or "error".
     """
     try:
-        cfg = prompts["describe_only"]
+        cfg = load_describe_only_prompt(instruction)
         full_prompt = (
             cfg["system_prompt"].strip()
             + "\n"
             + cfg["describe_only_prompt"].strip()
             + "\n"
-            + cfg["user_prompt_template"].format(user_task=instruction).strip()
+            + cfg["user_prompt_template"].strip()
         )
         # Use planner's dispatch_llm_async for all LLM calls
         result_obj = await planner.dispatch_llm_async(
@@ -78,7 +92,7 @@ async def classify_describe_only(
         return "error"
 
 
-async def classify_task_decomposition(
+async def classify_task_decomposition_async(
     instruction: str,
     planner: "Planner",
 ) -> str:
@@ -93,13 +107,13 @@ async def classify_task_decomposition(
         str: "single-step", "multi-step", or "unknown"/"error".
     """
     try:
-        cfg = prompts["task_decomposition"]
+        cfg = load_task_decomposition_prompt(instruction)
         full_prompt = (
             cfg["system_prompt"].strip()
             + "\n"
             + cfg["single_vs_multi_step_prompt"].strip()
             + "\n"
-            + cfg["user_prompt_template"].format(user_task=instruction).strip()
+            + cfg["user_prompt_template"].strip()
         )
 
         result_obj = await planner.dispatch_llm_async(
@@ -122,23 +136,3 @@ async def classify_task_decomposition(
     except Exception as e:
         logger.error(f"[IntentClassifier] classify_task_decomposition failed: {e}")
         return "error"
-
-
-# Example usage (async)
-if __name__ == "__main__":
-    import asyncio
-    from agent.planner import Planner
-
-    logging.basicConfig(level=logging.INFO)
-    # You'd pass the correct local_model_name/api_model_name here as used in your CLI
-    planner = Planner(local_model_name="llama_2_7b_chat")
-    print("Describe only:")
-    print(asyncio.run(classify_describe_only("Describe this project.", planner)))
-    print("Task decomposition:")
-    print(
-        asyncio.run(
-            classify_task_decomposition(
-                "Summarize every Python file in this 200-file repo.", planner
-            )
-        )
-    )

@@ -18,8 +18,9 @@ Model hierarchy:
     - IntentClassificationResponse: (Optional) For intent/meta outputs from classifier heads.
 """
 
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 from pydantic import BaseModel, Field, model_validator, ConfigDict
+from agent.tool_chain_fsm import StepState
 from prompts.load_agent_prompts import load_planner_prompts
 
 
@@ -229,14 +230,17 @@ class ToolResult(BaseModel):  # Optional for now; use later
     Represents the result of a single tool call after execution.
 
     Attributes:
+        step_id (str): step_0, step_1, etc.
         tool (str): Tool name executed.
         params (Dict[str, Any]): Parameters that were passed to the tool.
         status (str): "success" or "error".
         message (Optional[str]): Optional message (error details or output summary).
-        result (Optional[Any]): Result returned from the tool (may be list, dict, str, etc).
+        result (Optional[Any]): Result returned from the tool (may be list, dict,
+            str, etc).
 
     Example:
         {
+            "step_id": "step_0"
             "tool": "list_project_files",
             "params": {"root": "."},
             "status": "success",
@@ -245,11 +249,13 @@ class ToolResult(BaseModel):  # Optional for now; use later
         }
     """
 
+    step_id: str
     tool: str
     params: Dict[str, Any]
-    status: str
+    status: str  # "success" or "error"
     message: Optional[str] = ""
     result: Optional[Any] = None
+    state: StepState = StepState.PENDING
 
 
 class ToolResults(BaseModel):

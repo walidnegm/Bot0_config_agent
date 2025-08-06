@@ -5,10 +5,12 @@ Supports both local and cloud (API) LLM model selection via explicit arguments.
 """
 
 import logging
-from typing import Optional, List, Dict, Any
+from typing import Optional, Dict, Union
 import asyncio
-from agent.executor import ToolExecutor
 from agent.planner import Planner
+from agent_models.llm_response_models import ToolResult, ToolResults
+from agent.tool_chain_executor import ToolChainExecutor
+from agent.tool_chain_fsm import StepState
 from tools.tool_registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -16,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 class AgentCore:
     """
-    Main agent class that wires together tool registry, planner, and executor.
+    Main agent class that wires together tool registry, planner, and tool_chain_executor.
     """
 
     def __init__(
@@ -37,12 +39,9 @@ class AgentCore:
         self.planner = Planner(
             local_model_name=local_model_name, api_model_name=api_model_name
         )
-        self.executor = ToolExecutor()
         logger.info("[AgentCore] ✅ Initialization complete.")
 
-    def handle_instruction(
-        self, instruction: str
-    ) -> List[Dict[str, Any]]:  # ☑️ updated this to allow async function calling
+    def handle_instruction(self, instruction: str) -> ToolResults:
         """
         Process a user instruction: plan tool usage, execute tools, and return results.
 
@@ -60,14 +59,27 @@ class AgentCore:
             # Create an event loop with asyncio.run(), runs the coroutine to completion,
             # then closes the loop and returns the result.
             plan = asyncio.run(self.planner.plan_async(instruction))
+            executor = ToolChainExecutor(plan=plan)
             logger.debug("[AgentCore] ✅ Plan generated.")
 
             logger.debug("[AgentCore] 🚀 Executing plan…")
-            results = self.executor.execute_plan(plan=plan)
+
+            tool_results = executor.run_plan_with_fsm(plan)
             logger.debug("[AgentCore] ✅ Execution complete.")
 
-            return results
+            return tool_results
 
+        # ... inside AgentCore.handle_instruction
         except Exception as e:
-            logger.error(f"[AgentCore] Planner error: {e}", exc_info=True)
-            return [{"tool": "planner", "status": "error", "message": str(e)}]
+            logger.error(f"[AgentCore] Planner/Executor error: {e}", exc_info=True)
+            # Return a standardized error result for consistent downstream handling
+            error_result = ToolResult(
+                step_id="step_0",
+                tool="planner",
+                params={},
+                status="error",
+                message=str(e),
+                result=None,
+                state=StepState.FAILED,
+            )
+            return error_result

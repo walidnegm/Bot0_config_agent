@@ -29,6 +29,7 @@ dependencies = [
     "jinja2>=3.1.6",
     "pytest>=8.3.5",
     "aiolimiter>=1.2.1",
+    "pynvml>=11.5.3",
 ]
 
 [tool.setuptools.packages.find]

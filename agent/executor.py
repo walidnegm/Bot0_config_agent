@@ -1,11 +1,13 @@
 """
+# todo: this module is deprecated. will delete soon.
+
 ToolExecutor: Executes a sequence of tool calls from a plan.
 
 - Executes tools from the ToolRegistry.
 - Does NOT load or manage any LLM models or configs.
 - Does NOT fallback to raw LLM chat completions (that is handled centrally).
 
-* I removed the model calling part - ToolExecutor should be executing tools only.
+* removed the model calling part - ToolExecutor should be executing tools only.
 """
 
 from typing import List, Dict, Any

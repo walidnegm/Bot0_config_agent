@@ -93,7 +93,7 @@ cli.py
               <--[JSON tool plan]---
                        |
                        v
-                ToolExecutor.execute_plan()
+                ToolChainExecutor.execute_plan()
                        |
            [for each tool call in plan:]
                        |

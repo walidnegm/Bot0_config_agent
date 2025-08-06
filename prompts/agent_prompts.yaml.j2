@@ -7,14 +7,6 @@ evaluator:
     Task: {task}
     Response: {response}
 
-evaluator:
-  system_prompt: |
-    You are a detailed evaluator. Given a task and a response, provide a score and reasoning.
-
-  user_prompt_template: |
-    Task: {task}
-    Response: {response}
-
 intent_classifier:
   task_decomposition:
     description: "Classifies whether a user request is single-step or multi-step."
@@ -45,7 +37,7 @@ intent_classifier:
 
     user_prompt_template: |
       Request: {user_task}
-      
+
   describe_only:
     description: "Detects if the user is asking to describe, summarize, or give an overview of the project."
     system_prompt: |
@@ -79,18 +71,43 @@ planner:
     Always respond concisely and strictly follow the output instructions provided.
     If the instruction is ambiguous or missing important details, you may ask a short clarifying question instead of generating a tool plan.
 
-  select_tools_prompt: |
-    Analyze the user's instruction and select one or more appropriate tools from the list below.
-    Each tool has a name, a set of parameters, and a description.
+  select_single_tool_prompt: |
+    Choose the single best tool to solve the user's instruction from the list below.
+
+    Output one tool call as a JSON array (with one object), using only the parameter names shown.
 
     === Tool List ===
     {% for tool in tools %}
     - {{ tool.name }}({% for param, meta in tool.parameters.items() %}{{ param }}: {{ meta.type }}{% if not loop.last %}, {% endif %}{% endfor %}): {{ tool.description }}{% if tool.usage_hint %} — {{ tool.usage_hint }}{% endif %}
     {% endfor %}
 
-    If a file must be found first, use `list_project_files` or `find_file_by_keyword` first, then refer to their output.
-    Use exactly the parameter names shown in the tool spec. For example: use "path" (not "file_path") for read_file.
-    The key must be "tool" (not "call"), and "tool" must be one of: {{tools | map(attribute="name") | join(", ")}}.
+    Do not chain multiple tools. Do not include markdown, comments, or extra text.
+
+    Example:
+    [
+      { "tool": "read_file", "params": { "path": "README.md" } }
+    ]
+
+  select_multi_tool_prompt: |
+    Analyze the user's instruction and select the tools needed to solve the task, using the list below.
+
+    Output a JSON array of tool calls, in the order they should be executed.
+    Use "<prev_output>" if a tool needs the result of the previous step as input.
+    Use only the parameter names shown in the tool list.
+
+    === Tool List ===
+    {% for tool in tools %}
+    - {{ tool.name }}({% for param, meta in tool.parameters.items() %}{{ param }}: {{ meta.type }}{% if not loop.last %}, {% endif %}{% endfor %}): {{ tool.description }}{% if tool.usage_hint %} — {{ tool.usage_hint }}{% endif %}
+    {% endfor %}
+
+    Only return a valid JSON array. Do not include markdown, comments, or extra text.
+
+    Example:
+    [
+      { "tool": "list_project_files", "params": { "root": "." } },
+      { "tool": "read_file", "params": { "path": "<prev_output>" } },
+      { "tool": "echo_message", "params": { "message": "<prev_output>" } }
+    ]
 
   return_json_only_prompt: |
     Your ONLY output must be a single valid JSON array of objects, without any preamble or explanation.
@@ -111,35 +128,6 @@ planner:
     - Placeholders like "path/to/file"
     ✅ If no tool is applicable, return an empty array: []
 
-  multi_step_prompt: |
-    🧠 For multi-step tasks, return multiple tool calls in sequence.
-    Refer to prior results using "<prev_output>" or "<step_n>".
-    Examples:
-    Single step:
-    [
-      {
-        "tool": "list_project_files",
-        "params": {
-          "root": "."
-        }
-      }
-    ]
-    Two steps:
-    [
-      {
-        "tool": "list_project_files",
-        "params": {
-          "root": "."
-        }
-      },
-      {
-        "tool": "echo_message",
-        "params": {
-          "message": "<prev_output>"
-        }
-      }
-    ]
-  
   user_task_prompt: |
     User task: {{user_task}}
 
