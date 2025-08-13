@@ -32,16 +32,17 @@ Example Usage:
     )
 """
 
-from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING
+import json
 import logging
-import yaml
+from agent_models.agent_models import TextResponse
 from prompts.load_agent_prompts import (
     load_describe_only_prompt,
     load_task_decomposition_prompt,
 )
-from agent.planner import Planner  # <-- import your Planner with dispatch_llm_async
 
+if TYPE_CHECKING:
+    from agent.planner import Planner
 
 logger = logging.getLogger(__name__)
 
@@ -61,19 +62,24 @@ async def classify_describe_only_async(
         str: "describe_project", "unknown", or "error".
     """
     try:
-        cfg = load_describe_only_prompt(instruction)
+        cfg = load_describe_only_prompt(user_task=instruction)
         full_prompt = (
             cfg["system_prompt"].strip()
             + "\n"
             + cfg["describe_only_prompt"].strip()
             + "\n"
-            + cfg["user_prompt_template"].strip()
+            + cfg["user_task_prompt"].strip()
         )
+
+        # Log full prompt before calling LLM
+        logger.info("[LLMManager] Full Prompt:\n%s", json.dumps(full_prompt, indent=2))
+
         # Use planner's dispatch_llm_async for all LLM calls
         result_obj = await planner.dispatch_llm_async(
             user_prompt=full_prompt,
             system_prompt="",  # Not needed since in template; or pass cfg["system_prompt"]
             response_type="text",
+            response_model=TextResponse,
         )
 
         # Defensive: prefer .text, fallback to str
@@ -107,28 +113,33 @@ async def classify_task_decomposition_async(
         str: "single-step", "multi-step", or "unknown"/"error".
     """
     try:
-        cfg = load_task_decomposition_prompt(instruction)
+        cfg = load_task_decomposition_prompt(user_task=instruction)
         full_prompt = (
             cfg["system_prompt"].strip()
             + "\n"
             + cfg["single_vs_multi_step_prompt"].strip()
             + "\n"
-            + cfg["user_prompt_template"].strip()
+            + cfg["user_task_prompt"].strip()
         )
+
+        # Log full prompt before calling LLM
+        logger.info("[LLMManager] Full Prompt:\n%s", json.dumps(full_prompt, indent=2))
 
         result_obj = await planner.dispatch_llm_async(
             user_prompt=full_prompt,
             system_prompt="",  # Not needed; included in template
             response_type="text",
+            response_model=TextResponse,
         )
 
         result = getattr(result_obj, "text", None) or str(result_obj)
         result = result.strip().lower()
+
         # Defensive clean-up
-        if "single-step" in result:
+        if "single-step" in result.lower():
             logger.info(f"[IntentClassifier] task_decomposition: single-step")
             return "single-step"
-        if "multi-step" in result:
+        if "multi-step" in result.lower():
             logger.info(f"[IntentClassifier] task_decomposition: multi-step")
             return "multi-step"
         logger.warning(f"[IntentClassifier] Unexpected output: {result!r}")

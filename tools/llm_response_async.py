@@ -2,6 +2,7 @@ import logging
 from typing import Dict
 import itertools
 from agent_models.llm_response_validators import is_valid_llm_response
+from agent_models.step_status import StepStatus
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +20,7 @@ async def llm_response_async(
         temperature (float, optional): Temperature for generation.
 
     Returns:
-        dict: { "status": "ok"|"error", "message": response text or error,
+        dict: { "status": "success"|"error", "message": response text or error,
             "result"|"data"|"content"...: response }
     """
     try:
@@ -45,4 +46,4 @@ async def llm_response_async(
         return response_dict
 
     except Exception as e:
-        return {"status": "error", "message": f"LLM error: {e}"}
+        return {"status": StepStatus.ERROR, "message": f"LLM error: {e}"}

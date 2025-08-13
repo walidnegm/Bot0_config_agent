@@ -4,18 +4,8 @@ Lite FSM controller to help execute 'chain of tools'.
 """
 
 from typing import Dict, Any, Optional
-from enum import Enum
-from agent_models.llm_response_models import ToolChain  # your Pydantic plan model
-
-
-class StepState(str, Enum):
-    "enum class for FSM states"
-
-    PENDING = "pending"  # Have not yet started
-    IN_PROGRESS = "in_progress"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    SKIPPED = "skipped"
+from agent_models.agent_models import ToolChain
+from agent_models.step_state import StepState
 
 
 class ToolChainFSM:

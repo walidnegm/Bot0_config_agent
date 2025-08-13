@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 import json
 import yaml
-from agent_models.step_status import StepStatus
+from agent_models.agent_models import StepStatus
 
 
 SECRET_KEYWORDS = ["token", "key", "secret", "pass", "auth"]

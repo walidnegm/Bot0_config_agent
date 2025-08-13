@@ -6,6 +6,7 @@ Tool to generate file size & number of files stats for a directory.
 
 from pathlib import Path
 import humanize
+from agent_models.step_status import StepStatus
 
 
 def find_dir_size(**kwargs):
@@ -16,7 +17,7 @@ def find_dir_size(**kwargs):
     path = Path(root)
     if not path.exists() or not path.is_dir():
         return {
-            "status": "error",
+            "status": StepStatus.SUCCESS,
             "message": f"Directory '{root}' does not exist or is not a directory.",
         }
 
@@ -41,12 +42,12 @@ def find_dir_size(**kwargs):
     size_hr = humanize.naturalsize(total_size, binary=True)
 
     return {
-        "status": "ok",
+        "status": StepStatus.SUCCESS,
+        "message": f"{num_files} files, {size_hr} in '{root}'",
         "result": {
             "num_files": num_files,
             "total_size_bytes": total_size,
             "total_size_hr": size_hr,
             "root": str(path.resolve()),
         },
-        "message": f"{num_files} files, {size_hr} in '{root}'",
     }

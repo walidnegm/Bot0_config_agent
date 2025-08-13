@@ -11,17 +11,18 @@ extensibility as new agent capabilities emerge.
 
 Model hierarchy:
     - BaseResponseModel: Base with status/message (all responses inherit).
-    - TextResponse / CodeResponse: For natural language or code snippet agent outputs.
+    - TextResponse / CodeResponse: For natural language or code snippet
+        agent outputs.
     - JSONResponse: For any generic JSON result.
-    - ToolCall / ToolPlan / ToolResult / ToolResults: For structured tool-calling, planning,
+    - ToolCall / ToolPlan / ToolResult / ToolResults: For structured
+        tool-calling, planning,
         and results.
-    - IntentClassificationResponse: (Optional) For intent/meta outputs from classifier heads.
+    - IntentClassificationResponse: (Optional) For intent/meta outputs
+        from classifier heads.
 """
 
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 from pydantic import BaseModel, Field, model_validator, ConfigDict
-from agent.tool_chain_fsm import StepState
-from prompts.load_agent_prompts import load_planner_prompts
 
 
 # --- 1. Base Response (status/message for all outputs) ---
@@ -111,7 +112,8 @@ class JSONResponse(BaseResponseModel):
     General-purpose model for agent outputs that are valid JSON.
 
     Attributes:
-        data (Union[Dict[str, Any], List[Any]]): Arbitrary JSON content returned by the agent/tool.
+        data (Union[Dict[str, Any], List[Any]]): Arbitrary JSON content returned
+            by the agent/tool.
 
     Config:
         arbitrary_types_allowed (bool): Allows lists or dicts as data.
@@ -225,61 +227,7 @@ class ToolChain(BaseModel):
     )
 
 
-class ToolResult(BaseModel):  # Optional for now; use later
-    """
-    Represents the result of a single tool call after execution.
-
-    Attributes:
-        step_id (str): step_0, step_1, etc.
-        tool (str): Tool name executed.
-        params (Dict[str, Any]): Parameters that were passed to the tool.
-        status (str): "success" or "error".
-        message (Optional[str]): Optional message (error details or output summary).
-        result (Optional[Any]): Result returned from the tool (may be list, dict,
-            str, etc).
-
-    Example:
-        {
-            "step_id": "step_0"
-            "tool": "list_project_files",
-            "params": {"root": "."},
-            "status": "success",
-            "message": "",
-            "result": ["file1.py", "file2.md"]
-        }
-    """
-
-    step_id: str
-    tool: str
-    params: Dict[str, Any]
-    status: str  # "success" or "error"
-    message: Optional[str] = ""
-    result: Optional[Any] = None
-    state: StepState = StepState.PENDING
-
-
-class ToolResults(BaseModel):
-    """
-    Container for all results returned from executing a multi-step tool plan.
-
-    Attributes:
-        results (List[ToolResult]): List of results from each executed tool call.
-
-    Example:
-        {
-            "results": [
-                {... ToolResult ...},
-                {... ToolResult ...}
-            ]
-        }
-    """
-
-    results: List[ToolResult]
-
-
-# --- 5. (Optional) Intent Classification for Agent Routing ---
-
-
+# --- Intent Classification for Agent Routing ---
 class IntentClassificationResponse(BaseResponseModel):
     """
     Model for agent intent classification outputs (optional, for future use).

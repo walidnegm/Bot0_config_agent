@@ -4,10 +4,10 @@ import pynvml
 import torch
 import logging_config  # Make sure this sets up "resource" logger
 
-resource_logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
-def log_gpu_usage(step_name: str = ""):
+def log_gpu_usage(step_name: str = "") -> float:
     """
     Log current GPU VRAM usage (via NVML and PyTorch) with an optional step label.
 
@@ -18,6 +18,9 @@ def log_gpu_usage(step_name: str = ""):
         step_name (str): Label for this measurement (e.g., "before_load_model", 
             "after_inference", "OOM").
 
+    Returns:
+        used_mb (float): Current VRAM memory usage in MB (useful for calculations).
+
     Example output:
         [VRAM][before_load_model] NVML: 612.12/4096.00 MB | PyTorch: alloc=4.20 MB, reserved=4.20 MB, \
 max_alloc=4.20 MB, max_reserved=4.20 MB
@@ -26,7 +29,6 @@ max_alloc=4.20 MB, max_reserved=4.20 MB
         # Import at the top of your file
         from utils.gpu_monitor import log_gpu_usage
 
-        # Log before and after major steps (model load, inference, cache clearing)
         log_gpu_usage("before_load_model")
         llm = get_llm_manager(self.local_model_name)
         log_gpu_usage("after_load_model")
@@ -45,7 +47,7 @@ max_alloc=4.20 MB, max_reserved=4.20 MB
 
     Notes:
         - Requires `pynvml` and `torch` to be installed.
-        - Logs are sent to the dedicated "resource" logger.
+        - Logs are saved to the main log file.
         - If called on a non-GPU machine or without drivers, will log an error (but not crash).
     """
     try:
@@ -58,12 +60,46 @@ max_alloc=4.20 MB, max_reserved=4.20 MB
         torch_reserved = torch.cuda.memory_reserved() / (1024**2)
         torch_max_alloc = torch.cuda.max_memory_allocated() / (1024**2)
         torch_max_reserved = torch.cuda.max_memory_reserved() / (1024**2)
-        resource_logger = logging.getLogger("resource")
-        resource_logger.info(
+        logger.info(
             f"[VRAM][{step_name}] NVML: {used_mb:.2f}/{total_mb:.2f} MB | "
             f"PyTorch: alloc={torch_alloc:.2f} MB, reserved={torch_reserved:.2f} MB, "
             f"max_alloc={torch_max_alloc:.2f} MB, max_reserved={torch_max_reserved:.2f} MB"
         )
+        return used_mb
     except Exception as e:
-        resource_logger = logging.getLogger("resource")
-        resource_logger.error(f"Failed to log GPU usage: {e}")
+        logger.error(f"Failed to log GPU usage: {e}")
+        return -1.0  # Indicates logging failed or unavailable
+
+
+def log_peak_vram_usage(label: str = ""):
+    """
+    Logs the peak VRAM allocated by PyTorch in MB since the last reset.
+
+    Args:
+        label (str): Custom label for this measurement (e.g., "after_load", "after_inference").
+
+    Return:
+        peak_mb (float): peak VRAM memory usage (in case needed for other calcuations).
+
+    How to use:
+        # Before the code block you want to profile:
+        torch.cuda.reset_peak_memory_stats()
+
+        # ...your code (e.g., model load or inference)...
+
+        log_peak_vram_usage("after_load_model")
+
+    Example log:
+        [PEAK_VRAM][after_load_model] PyTorch peak allocated: 2240.55 MB
+
+    Notes:
+        - Only shows *your process’s* max PyTorch VRAM usage.
+        - Call `torch.cuda.reset_peak_memory_stats()` *before* the code you want to measure.
+    """
+    try:
+        peak_mb = torch.cuda.max_memory_allocated() / (1024**2)
+        logger.info(...)
+        return peak_mb
+    except Exception as e:
+        logger.error(...)
+        return 0.0  # or -1.0 to indicate an error

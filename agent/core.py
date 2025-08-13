@@ -8,17 +8,18 @@ import logging
 from typing import Optional, Dict, Union
 import asyncio
 from agent.planner import Planner
-from agent_models.llm_response_models import ToolResult, ToolResults
 from agent.tool_chain_executor import ToolChainExecutor
-from agent.tool_chain_fsm import StepState
+from agent_models.step_state import StepState
+from agent_models.step_status import StepStatus
 from tools.tool_registry import ToolRegistry
+from tools.tool_models import ToolResult, ToolResults
 
 logger = logging.getLogger(__name__)
 
 
 class AgentCore:
     """
-    Main agent class that wires together tool registry, planner, and tool_chain_executor.
+    Main agent class that wires together tool_registry, planner, and tool_chain_executor.
     """
 
     def __init__(
@@ -77,9 +78,9 @@ class AgentCore:
                 step_id="step_0",
                 tool="planner",
                 params={},
-                status="error",
+                status=StepStatus.ERROR,
                 message=str(e),
                 result=None,
                 state=StepState.FAILED,
             )
-            return error_result
+            return ToolResults(results=[error_result])

@@ -1,47 +1,47 @@
 # prompts.yaml.j2
-evaluator:
+evaluator: # holder for now
   system_prompt: |
     You are a detailed evaluator. Given a task and a response, provide a score and reasoning.
 
-  user_prompt_template: |
+  user_prompt: |
     Task: {task}
     Response: {response}
 
 intent_classifier:
   task_decomposition:
-    description: "Classifies whether a user request is single-step or multi-step."
+    description: "Classifies whether a user task is single-step or multi-step."
     system_prompt: |
       You are an LLM task decomposition classifier.
     single_vs_multi_step_prompt: |
-      Analyze the user request. 
-      If the request can be answered in one LLM call, output "single-step".
+      Analyze the user task. 
+      If the task can be answered in one LLM call, output "single-step".
       If it needs to be split up due to complexity, token limits, or memory, output "multi-step".
       
       Only respond with "Single-step" or "Multi-step". Do not include any other text or labels.
 
       Examples:
-      Request: List all files in the project.
+      User task: List all files in the project.
       Single-step
 
-      Request: Summarize the config.yaml file.
+      User task: Summarize the config.yaml file.
       Single-step
 
-      Request: Summarize every Python file in this 200-file repo.
+      User task: Summarize every Python file in this 200-file repo.
       Multi-step
 
-      Request: Read all requirements.txt and then summarize the dependencies.
+      User task: Read all requirements.txt and then summarize the dependencies.
       Multi-step
 
-      Request: Find secrets in all project files and write a report.
+      User task: Find secrets in all project files and write a report.
       Multi-step
 
-    user_prompt_template: |
-      Request: {user_task}
+    user_task_prompt: |
+      User task: {{ user_task }}
 
   describe_only:
     description: "Detects if the user is asking to describe, summarize, or give an overview of the project."
     system_prompt: |
-      You are an intent classifier for project summary requests.
+      You are an intent classifier for project summary tasks.
     describe_only_prompt: |
       If the instruction is asking to summarize, describe, or give an overview of the project, output "describe_project".
       Otherwise, output "unknown".
@@ -60,8 +60,8 @@ intent_classifier:
       Instruction: List all files in the repo.
       unknown
 
-    user_prompt_template: |
-      Instruction: {user_task}
+    user_task_prompt: |
+      User task: {{ user_task }}
 
 planner:
   system_prompt: |
@@ -84,9 +84,7 @@ planner:
     Do not chain multiple tools. Do not include markdown, comments, or extra text.
 
     Example:
-    [
-      { "tool": "read_file", "params": { "path": "README.md" } }
-    ]
+    [{"tool": "read_files", "params": { "path": ["README.md"]}}]
 
   select_multi_tool_prompt: |
     Analyze the user's instruction and select the tools needed to solve the task, using the list below.
@@ -105,7 +103,7 @@ planner:
     Example:
     [
       { "tool": "list_project_files", "params": { "root": "." } },
-      { "tool": "read_file", "params": { "path": "<prev_output>" } },
+      { "tool": "read_files", "params": { "path": "<prev_output>" } },
       { "tool": "echo_message", "params": { "message": "<prev_output>" } }
     ]
 
@@ -137,12 +135,11 @@ planner:
     {{multi_step_prompt}}
     {{user_prompt}}
 
-
-summarizer:
+summarizer: # holder for now
   system_prompt: |
     You are a technical summarizer. Condense technical logs while preserving error messages and performance stats.
 
-  user_prompt_template: |
+  summarize_prompt: |
     Give a concise summary of the project based on the following files:
     <prev_output>
     Highlight purpose, key components, and usage.

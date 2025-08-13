@@ -66,7 +66,7 @@ from loaders.model_configs_models import (
     LoaderConfigEntry,
 )
 from loaders.load_model_config import load_model_config
-from agent_models.llm_response_models import (
+from agent_models.agent_models import (
     JSONResponse,
     CodeResponse,
     TextResponse,
@@ -78,6 +78,7 @@ from agent_models.llm_response_validators import (
     validate_tool_selection_or_steps,
 )
 from utils.find_root_dir import find_project_root
+from utils.gpu_monitor import log_gpu_usage, log_peak_vram_usage
 
 
 logger = logging.getLogger(__name__)
@@ -121,6 +122,7 @@ class LLMManager:
         self.loader: Optional[ModelLoaderType] = None
         self.tokenizer: Optional[Union[PreTrainedTokenizerBase, Llama]] = None
         self.model: Optional[Any] = None
+        self.model_name: str = model_name  # For logging
 
         entry = load_model_config(model_name)
         self.loader = entry.loader
@@ -145,11 +147,7 @@ class LLMManager:
         Returns None (the new value to assign to your model variable).
         """
         # Log VRAM before cleanup
-        if torch.cuda.is_available():
-            free, total = torch.cuda.mem_get_info()
-            logger.info(
-                f"[LLMManager] CUDA memory before cleanup: {free/1024/1024:.1f} MB free / {total/1024/1024:.1f} MB total"
-            )
+        log_gpu_usage("[LLMMager] before clearing up vram cache")
 
         if hasattr(self, "model") and self.model is not None:
             logger.info("[LLMManager] Releasing old model from memory...")
@@ -157,16 +155,11 @@ class LLMManager:
             self.model = None
 
         gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            torch.cuda.ipc_collect()
-            # Log VRAM after cleanup
-            free, total = torch.cuda.mem_get_info()
-            logger.info(
-                f"[LLMManager] CUDA memory after cleanup: {free/1024/1024:.1f} MB free / {total/1024/1024:.1f} MB total"
-            )
-        else:
-            logger.info("[LLMManager] GPU not available.")
+        torch.cuda.empty_cache()
+        torch.cuda.ipc_collect()
+
+        # Log VRAM after cleanup
+        log_gpu_usage("[LLMManager] after clearing up VRAM cache")
 
         return None
 
@@ -212,6 +205,10 @@ class LLMManager:
         logger.info(f"[LLMManager] Messages:\n{json.dumps(messages, indent=2)}\n")
         logger.debug(f"Generating with {self.loader}")
 
+        # ☑️ log VRAM before inference
+        torch.cuda.reset_peak_memory_stats()  # clear any earlier VRAM peaks
+        before_vram = log_gpu_usage(f"before inference with {self.model_name}")
+
         try:
             if self.loader == "awq":
                 response = self._generate_with_awq(
@@ -248,7 +245,27 @@ class LLMManager:
             if not response:
                 raise ValueError(f"Generated output is empty [].")
 
-            logger.info(f"[LLMManager] 🧪 Generated text (raw):\n{repr(response)}")
+            # ☑️ log VRAM usage during inference
+            after_peak_vram = log_peak_vram_usage(
+                f"peak VRAM during generation with {self.model_name}"
+            )  # ☑️ track peak vram usage
+            vram_jump = after_peak_vram - before_vram
+            logger.info(
+                f"[LLMManager] VRAM jump for {self.model_name}: {vram_jump:.1f} MB "
+                f"(before: {before_vram:.1f} MB, peak: {after_peak_vram})"
+            )
+
+            # * Critical logging to examine main output
+            logger.info("[LLMManager] 🧪 Generated text (raw):\n%s", response)
+            # logger.info(
+            #     "[LLMManager] 🧪 Generated text (pretty):\n%s",
+            #     (
+            #         json.dumps(json.loads(response), indent=2, ensure_ascii=False)
+            #         if isinstance(response, str)
+            #         and response.strip().startswith(("[", "{"))
+            #         else response
+            #     ),
+            # )
 
             # Validation 1: response_type (code, text, json)
             validated_response = validate_response_type(response, expected_res_type)
@@ -471,6 +488,8 @@ class LLMManager:
             f"[LLMManager] ✅ Using model: {model_name} ({self.loader}) on {self.device}"
         )
 
+        log_gpu_usage(f"[LLMManager] before loading model {model_name}")  # ☑️ track vram
+
         # Dispatch based on loader
         if self.loader == "gptq":
             assert isinstance(config, GPTQLoaderConfig)
@@ -487,6 +506,8 @@ class LLMManager:
         else:
             raise ValueError(f"Unsupported loader: {self.loader}")
 
+        log_gpu_usage(f"[LLMManager] after loading model {model_name}")  # ☑️ track vram
+
     def _format_prompt(self, user_prompt: str, system_prompt: str = "") -> str:
         return f"System: {system_prompt}\nUser: {user_prompt}\nAssistant:"
 
@@ -494,7 +515,7 @@ class LLMManager:
         self,
         user_prompt: str,
         system_prompt: str,
-        expected_res_type: Literal["json", "text", None] = None,
+        expected_res_type: Literal["json", "text", "code"] = "text",
         **generation_kwargs,
     ) -> str:
         """
@@ -557,7 +578,7 @@ class LLMManager:
         self,
         user_prompt: str,
         system_prompt: str,
-        expected_res_type: Literal["json", "text", None] = None,
+        expected_res_type: Literal["json", "text", "code"] = "text",
         **generation_kwargs,
     ) -> str:
         """
@@ -612,7 +633,7 @@ class LLMManager:
     def _generate_with_llama_cpp(
         self,
         messages: list,
-        expected_res_type: Literal["json", "text", None] = None,
+        expected_res_type: Literal["json", "text", "code"] = "text",
         **generation_kwargs,
     ) -> str:
         """
@@ -677,7 +698,7 @@ class LLMManager:
         self,
         user_prompt: str,
         system_prompt: str,
-        expected_res_type: Literal["json", "text", None] = None,
+        expected_res_type: Literal["json", "text", "code"] = "text",
         **generation_kwargs,
     ) -> str:
         """

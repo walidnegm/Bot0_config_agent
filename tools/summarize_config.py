@@ -3,6 +3,7 @@ import os
 import logging
 import json
 import yaml
+from agent_models.step_status import StepStatus
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +110,7 @@ def summarize_config(**kwargs):
                 print(f"[SKIP] {fname}")
 
     return {
-        "status": "ok",
+        "status": StepStatus.SUCCESS,
         "message": f"Scanned {len(summary)} config files",
         "configs": summary,
     }

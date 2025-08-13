@@ -1,11 +1,10 @@
 import json
+from agent_models.step_status import StepStatus
+
 
 def echo_message(**kwargs):
     message = kwargs.get("message", "")
-    result = {
-        "status": "ok",
-        "message": message
-    }
+    result = {"status": StepStatus.SUCCESS, "message": message}
 
     # Try to parse message if it's a serialized JSON string
     try:
@@ -16,4 +15,3 @@ def echo_message(**kwargs):
         pass
 
     return result
-

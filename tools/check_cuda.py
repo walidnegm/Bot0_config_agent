@@ -1,12 +1,10 @@
 import torch
 import subprocess
+from agent_models.step_status import StepStatus
+
 
 def check_cuda():
-    result = {
-        "status": "ok",
-        "result": {},
-        "message": ""
-    }
+    result = {"status": StepStatus.SUCCESS, "result": {}, "message": ""}
 
     try:
         # Check CUDA availability
@@ -20,17 +18,20 @@ def check_cuda():
 
         # Try to run `nvidia-smi`
         try:
-            smi_output = subprocess.check_output(["nvidia-smi"], stderr=subprocess.STDOUT, text=True)
+            smi_output = subprocess.check_output(
+                ["nvidia-smi"], stderr=subprocess.STDOUT, text=True
+            )
             result["result"]["nvidia_smi_summary"] = smi_output.splitlines()[0]
-            result["result"]["nvidia_smi"] = "\n".join(smi_output.strip().splitlines()[:20]) + "\n... (truncated)"
+            result["result"]["nvidia_smi"] = (
+                "\n".join(smi_output.strip().splitlines()[:20]) + "\n... (truncated)"
+            )
         except FileNotFoundError:
             result["result"]["nvidia_smi"] = "nvidia-smi not found"
         except subprocess.CalledProcessError as e:
             result["result"]["nvidia_smi"] = f"nvidia-smi error: {e.output.strip()}"
 
     except Exception as e:
-        result["status"] = "error"
+        result["status"] = StepStatus.ERROR
         result["message"] = str(e)
 
     return result
-

@@ -19,12 +19,21 @@ python agent/cli.py --api-model gpt-4o
 python agent/cli.py --local-model llama_2_7b_chat --once "where are my model files"
 
 # Run one-off command with a cloud API model:
+Simple single step:
+python agent/cli.py --api-model claude-3-haiku-20240307 --once "list all files in my current directory"
+python agent/cli.py --api-model gpt-4.1-nano --once "list all files in my current directory"
+python agent/cli.py --local-model deepseek_coder_1_3b_gptq --once "list all files in my current directory and read the first file."
+
+More complex:
 python agent/cli.py --api-model claude-3-haiku-20240307 --once "summarize project config"
 python -m agent.cli --api-model gpt-4.1-mini --once "where are my config files?"
 python -m agent.cli --api-model claude-sonnet-4-20250514 --once "First find all config files in the project (excluding venv, models, etc.), then summarize each."
 
 # Show all available models and their descriptions:
 python agent/cli.py --show-models-help
+
+python -m agent.cli --api-model gpt-4.1-mini --once "List all files in the ./agent directory excluding __pycache__, .git, and venv."
+python -m agent.cli --api-model gpt-4.1-mini --once "List all files in the ./agent directory excluding __pycache__, .git, and venv, then summarize their contents."
 
 Notes:
 ------
@@ -43,6 +52,7 @@ from pathlib import Path
 from typing import List, Any, Dict
 from tabulate import tabulate
 from agent.core import AgentCore
+from agent_models.step_status import StepStatus
 from utils.get_model_info_utils import (
     get_local_model_names,
     get_api_model_names,
@@ -100,12 +110,12 @@ def display_result(result: Dict[str, Any]) -> None:
         result (dict): Result dict for a single step (from ToolResult.model_dump()).
     """
     tool = result.get("tool", "Unknown Tool")
-    status = result.get("status", "ok")
+    status = result.get("status", StepStatus.SUCCESS)
 
     # Skip noisy/low-level tools unless error
     if (
         tool in {"read_file", "aggregate_file_content", "llm_response_async"}
-        and status == "ok"
+        and status == StepStatus.SUCCESS
     ):
         return
 
@@ -153,9 +163,6 @@ def display_result(result: Dict[str, Any]) -> None:
         logger.info("📌 Result payload:")
         logger.info(pp.pformat(result_payload))
 
-    # Log the result as pretty-printed JSON for sharing/post-processing
-    logger.info("RESULT_JSON: %s", json.dumps(result, ensure_ascii=False, indent=2))
-
 
 def run_agent_loop(agent: AgentCore) -> None:
     """
@@ -181,11 +188,12 @@ def run_agent_loop(agent: AgentCore) -> None:
             print("\n--- Results ---")
             logger.info("\n--- Results ---")
 
-            for result in tool_results.results:
+            for i, result in enumerate(tool_results.results):
                 display_result(result.model_dump())
                 logger.info(
-                    "RESULT_JSON: %s",
-                    json.dumps(result.model_dump(), ensure_ascii=False),
+                    "RESULT_JSON for step %d:\n%s",
+                    i,
+                    json.dumps(result.model_dump(), indent=2, ensure_ascii=False),
                 )
 
             logger.info("=" * 50)
@@ -272,11 +280,12 @@ def main():
             print("\n--- Results ---")
             logger.info("\n--- Results ---")
 
-            for result in tool_results.results:
+            for i, result in enumerate(tool_results.results):
                 display_result(result.model_dump())
                 logger.info(
-                    "RESULT_JSON: %s",
-                    json.dumps(result.model_dump(), ensure_ascii=False),
+                    "RESULT_JSON for step %d:\n%s",
+                    i,
+                    json.dumps(result.model_dump(), indent=2, ensure_ascii=False),
                 )
 
             logger.info("=" * 50)

@@ -1,11 +1,16 @@
 import os
+from agent_models.step_status import StepStatus
+
 
 def find_file_by_keyword(**kwargs):
     keywords = kwargs.get("keywords")
     root = kwargs.get("root", os.getcwd())
 
     if not keywords:
-        return {"status": "error", "message": "Missing required parameter: keywords"}
+        return {
+            "status": StepStatus.ERROR,
+            "message": "Missing required parameter: keywords",
+        }
 
     if isinstance(keywords, str):
         keywords = [keywords]
@@ -19,8 +24,7 @@ def find_file_by_keyword(**kwargs):
                 matches.append(os.path.relpath(os.path.join(dirpath, f), start=root))
 
     return {
-        "status": "ok",
+        "status": StepStatus.SUCCESS,
         "message": f"Found {len(matches)} file(s) matching keywords: {', '.join(keywords)}",
-        "matches": matches
+        "matches": matches,
     }
-

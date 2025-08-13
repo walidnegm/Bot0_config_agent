@@ -45,7 +45,7 @@ from anthropic import AsyncAnthropic
 from anthropic._exceptions import RateLimitError
 
 # Project level imports
-from agent_models.llm_response_models import (
+from agent_models.agent_models import (
     CodeResponse,
     JSONResponse,
     TextResponse,

@@ -2,25 +2,24 @@
 # --------------------------------
 # Combine multiple file contents from prior steps for summarization
 
+from agent_models.step_status import StepStatus
+
+
 def aggregate_file_content(**kwargs):
     steps = kwargs.get("steps", [])  # Expected to be resolved step values
 
     if not steps or not isinstance(steps, list):
         return {
-            "status": "error",
-            "message": "Missing or invalid 'steps' parameter. Must be a list of file contents."
+            "status": StepStatus.ERROR,
+            "message": "Missing or invalid 'steps' parameter. Must be a list of file contents.",
         }
 
     try:
         joined = "\n\n".join(str(s) for s in steps)
         return {
-            "status": "ok",
+            "status": StepStatus.SUCCESS,
             "message": "Aggregated file contents.",
-            "result": joined
+            "result": joined,
         }
     except Exception as e:
-        return {
-            "status": "error",
-            "message": f"Failed to aggregate: {e}"
-        }
-
+        return {"status": StepStatus.ERROR, "message": f"Failed to aggregate: {e}"}

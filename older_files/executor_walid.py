@@ -5,6 +5,7 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from tools.tool_registry import ToolRegistry
 from llama_cpp import Llama
+from agent_models.agent_models import StepStatus
 
 
 def get_model_config() -> dict:

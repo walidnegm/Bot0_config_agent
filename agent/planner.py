@@ -27,7 +27,7 @@ from utils.llm_api_async import (
     call_anthropic_api_async,
     # call_gemini_api_async,
 )
-from agent_models.llm_response_models import (
+from agent_models.agent_models import (
     JSONResponse,
     TextResponse,
     CodeResponse,
@@ -143,7 +143,7 @@ class Planner:
         """
         # API LLMs: use async (faster)
         if self.api_model_name:
-            full_prompt = "/n".join(
+            full_prompt = "\n".join(
                 [system_prompt, user_prompt]
             )  # Combine use & sys prompts
             result = await self._call_api_llm_async(
@@ -187,10 +187,11 @@ class Planner:
         instruction = instruction.strip()
 
         # todo: this should be pushed into standard multi-step later
-        # 1. ✅ Intent classification - Describe Only
-        intent = await self._classify_intent_async(instruction)
-        if intent == "describe_project":
-            return self._build_filtered_project_summary_plan()
+        # todo: commented out to test the other intent classifier first
+        # # 1. ✅ Intent classification - Describe Only
+        # intent = await self._classify_intent_async(instruction)
+        # if intent == "describe_project":
+        #     return self._build_filtered_project_summary_plan()
 
         # 2. ✅ Intent classification - Task Decomposition (single or multi-step)
         task_decomp = await classify_task_decomposition_async(
@@ -446,17 +447,20 @@ class Planner:
                 )
                 return self._fallback_llm_response(instruction)
 
-            # Filter/normalize params for registry
-            valid_keys = set(
-                self.tool_registry.tools[tool_name]
-                .get("parameters", {})
-                .get("properties", {})
-                .keys()
+            # Filter/normalize params from tool registry (typed)
+            valid_keys = self.tool_registry.get_param_keys(tool_name)
+
+            logger.debug(
+                f"[Planner] Param keys for '{tool_name}': {sorted(valid_keys)}"
             )
+
             filtered_params = {k: v for k, v in params.items() if k in valid_keys}
+
+            # Compare the two
             if len(filtered_params) != len(params):
                 logger.info(
-                    f"[Planner] Extra params filtered for tool '{tool_name}': {set(params) - valid_keys}"
+                    f"[Planner] Extra params filtered for tool '{tool_name}': "
+                    f"{set(params) - valid_keys}"
                 )
 
             validated_tools.append(ToolCall(tool=tool_name, params=filtered_params))
@@ -488,7 +492,7 @@ class Planner:
     def _build_filtered_project_summary_plan(self) -> ToolChain:
         """
         Builds a multi-step agent plan to summarize the project using the
-        list_project_files tool, read_file, aggregate_file_content, and
+        list_project_files tool, read_files, aggregate_file_content, and
         llm_response_async tools.
 
         - Uses the list_project_files tool to gather relevant files (extensions,
@@ -519,7 +523,7 @@ class Planner:
         for i in range(10):
             plan.append(
                 {
-                    "tool": "read_file",
+                    "tool": "read_files",
                     "params": {
                         "path": f"<step_0.files[{i}]>"
                         # Indicates: take the i-th file from previous tool's 'files' output

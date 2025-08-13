@@ -5,7 +5,7 @@ and validate with pydantic.
 """
 
 from typing import Union
-from agent_models.llm_response_models import ToolChain, ToolCall
+from agent_models.agent_models import ToolChain, ToolCall
 
 # Maps tool name -> default path inside `.result`
 TOOL_OUTPUT_SCHEMA = {
@@ -45,14 +45,14 @@ def preprocess_plan(plan: Union[ToolChain, list[dict]]) -> ToolChain:
     Example:
         >>> raw_plan = [
         ...     {"tool": "list_project_files", "params": {"root": "."}},
-        ...     {"tool": "read_file", "params": {"path": "step_0"}}
+        ...     {"tool": "read_files", "params": {"path": "step_0"}}
         ... ]
         >>> resolved_plan = preprocess_plan(raw_plan)
         >>> print(resolved_plan.model_dump())
         {
             "steps": [
                 {"tool": "list_project_files", "params": {"root": "."}},
-                {"tool": "read_file", "params": {"path": "<step_0.result.files[0]>"}}
+                {"tool": "read_files", "params": {"path": "<step_0.result.files[0]>"}}
             ]
         }
 

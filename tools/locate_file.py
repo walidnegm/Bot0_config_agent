@@ -1,12 +1,11 @@
 import os
+from agent_models.step_status import StepStatus
+
 
 def locate_file(**kwargs):
     filename = kwargs.get("filename")  # ✅ Extract from kwargs
     if not filename:
-        return {
-            "status": "error",
-            "message": "Missing required parameter: filename"
-        }
+        return {"status": "error", "message": "Missing required parameter: filename"}
 
     matches = []
     search_roots = [os.path.expanduser("~"), os.getcwd()]
@@ -17,8 +16,7 @@ def locate_file(**kwargs):
                 matches.append(os.path.join(dirpath, filename))
 
     return {
-        "status": "ok",
+        "status": StepStatus.SUCCESS,
         "message": f"Found {len(matches)} match(es) for '{filename}'.",
-        "matches": matches
+        "matches": matches,
     }
-

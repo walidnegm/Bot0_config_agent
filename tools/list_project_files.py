@@ -5,9 +5,20 @@ import logging
 from typing import Any, Dict
 from pathlib import Path
 from utils.find_root_dir import find_project_root
+from agent_models.step_status import StepStatus
 
 
 logger = logging.getLogger(__name__)
+
+
+def normalize_extension(ext):
+    # Handles .py, py, *.py, *py, etc → .py
+    ext = ext.strip()
+    if ext.startswith("*."):
+        ext = ext[1:]  # remove '*'
+    if not ext.startswith("."):
+        ext = "." + ext.lstrip(".")
+    return ext
 
 
 def list_project_files(**kwargs) -> Dict[str, Any]:
@@ -37,14 +48,16 @@ def list_project_files(**kwargs) -> Dict[str, Any]:
         - Only files whose suffix matches an entry in 'include' are considered.
         - Only files <= 10,000 bytes are included in the result.
     """
-
-    root = kwargs.get("root") or find_project_root()
-    if isinstance(root, str):
-        root = Path(root)
-    if not root.exists():
-        return {"status": "error", "message": f"Directory '{root}' does not exist."}
-
-    logger.info(f"[list_project_files] 🔍 Scanning directory: {root}")
+    # Prepare include filter (always with a leading '.')
+    include = [
+        normalize_extension(ext)
+        for ext in (
+            kwargs.get("include")
+            or kwargs.get("include_file")
+            or [".py", ".md", ".toml", ".yaml", ".json"]
+        )
+    ]
+    logger.debug(f"[list_project_files] Using include filter: {include}")
 
     # Define a robust default exclusion set to avoid LLM mistakes
     MINIMUM_EXCLUDE = {
@@ -60,15 +73,16 @@ def list_project_files(**kwargs) -> Dict[str, Any]:
     exclude = set(kwargs.get("exclude") or kwargs.get("exclude_dir") or [])
     exclude |= MINIMUM_EXCLUDE
 
-    # Prepare include filter (always with a leading '.')
-    include = [
-        ext if ext.startswith(".") else f".{ext.lstrip('.')}"
-        for ext in (
-            kwargs.get("include")
-            or kwargs.get("include_file")
-            or [".py", ".md", ".toml", ".yaml", ".json"]
-        )
-    ]
+    root = kwargs.get("root") or find_project_root()
+    if isinstance(root, str):
+        root = Path(root)
+    if not root.exists():
+        return {
+            "status": StepStatus.ERROR,
+            "message": f"Directory '{root}' does not exist.",
+        }
+
+    logger.info(f"[list_project_files] 🔍 Scanning directory: {root}")
 
     file_paths = []
     for dirpath, dirnames, filenames in os.walk(root):
