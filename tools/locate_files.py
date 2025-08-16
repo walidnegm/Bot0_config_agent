@@ -9,7 +9,7 @@ from typing import Dict, Any, List, Optional
 from agent_models.step_status import StepStatus
 
 
-def locate_file(**kwargs) -> Dict[str, Any]:
+def locate_files(**kwargs) -> Dict[str, Any]:
     """
     Search for an exact filename under common roots (home dir and CWD).
 

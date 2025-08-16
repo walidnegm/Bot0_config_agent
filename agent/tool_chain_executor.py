@@ -223,6 +223,12 @@ class ToolChainExecutor:
 
             curr_idx = int(step_id.split("_")[1])
 
+            # ---- Create a copy of params ----
+            params = dict(
+                params or {}
+            )  # --> used for execution (keeps Path, Enums, etc.)
+            params_json = dict(params or {})  # --> used for logs/results (JSON-safe)
+
             # Debug: show initial planner params
             logger.debug("[Executor] %s initial plan params: %s", step_id, params)
 
@@ -237,7 +243,11 @@ class ToolChainExecutor:
                         step_id,
                     )
                 else:
-                    injected = auto_model.model_dump()
+                    injected = auto_model.model_dump()  # for execution (keeps Path)
+                    injected_json = auto_model.model_dump(
+                        mode="json"
+                    )  # for logging/ToolResult.params
+
                     logger.debug(
                         "[Executor] Injecting validated params from %s",
                         auto_model.__class__.__name__,
@@ -245,7 +255,7 @@ class ToolChainExecutor:
                     logger.debug(
                         "[Executor] %s found _next_params for injection: %s",
                         step_id,
-                        injected,
+                        injected_json,
                     )
                     logger.debug(
                         "[Executor] %s planner params before merge: %s",
@@ -260,11 +270,15 @@ class ToolChainExecutor:
                         step_id=step_id,
                         tool_name=tool_name,
                     )
-                    logger.debug(
-                        "[Executor] %s params after injected-preferred merge: %s",
-                        step_id,
-                        params,
+                    params_json = self._resolve_btw_step_params(
+                        injected=injected_json,
+                        planner=(params or {}),
+                        step_id=step_id,
+                        tool_name=tool_name,
                     )
+
+                    logger.debug("[%s] params (exec): %s", step_id, params)
+                    logger.debug("[%s] params (log) : %s", step_id, params_json)
 
             # ---- Execute the tool ----
             logger.info(
@@ -273,7 +287,7 @@ class ToolChainExecutor:
             result_entry = ToolResult(
                 step_id=step_id,
                 tool=tool_name,
-                params=params,
+                params=params_json,  # << JSON-safe for output & logging
                 status=None,
                 state=StepState.IN_PROGRESS,
             )

@@ -15,7 +15,7 @@
     "transform_fn": null
   },
   {
-    "source_tool": "locate_file",
+    "source_tool": "locate_files",
     "target_tool": "read_files",
     "transform_fn": "tools.workbench.tool_transformation.path_to_list"
   },
@@ -30,7 +30,7 @@
     "transform_fn": null
   },
   {
-    "source_tool": "locate_file",
+    "source_tool": "locate_files",
     "target_tool": "summarize_files",
     "transform_fn": "tools.workbench.tool_transformation.path_to_files"
   },
@@ -80,7 +80,7 @@
     "transform_fn": "tools.workbench.tool_transformation.any_to_message"
   },
   {
-    "source_tool": "locate_file",
+    "source_tool": "locate_files",
     "target_tool": "seed_parser",
     "transform_fn": "tools.workbench.tool_transformation.path_to_file_param"
   },
@@ -93,5 +93,40 @@
     "source_tool": "set_scope",
     "target_tool": "find_dir_size",
     "transform_fn": null
+  },
+  {
+    "source_tool": "find_dir_structure",
+    "target_tool": "select_files",
+    "transform_fn": "tools.workbench.tool_transformation.dir_to_files"
+  },
+  {
+    "source_tool": "list_project_files",
+    "target_tool": "select_files",
+    "transform_fn": null
+  },
+  {
+    "source_tool": "find_files_by_keywords",
+    "target_tool": "select_files",
+    "transform_fn": null
+  },
+  {
+    "source_tool": "locate_files",
+    "target_tool": "select_files",
+    "transform_fn": "tools.workbench.tool_transformation.path_to_list"
+  },
+  {
+    "source_tool": "select_files",
+    "target_tool": "read_files",
+    "transform_fn": null
+  },
+  {
+    "source_tool": "select_files",
+    "target_tool": "summarize_files",
+    "transform_fn": null
+  },
+  {
+    "source_tool": "select_files",
+    "target_tool": "echo_message",
+    "transform_fn": "tools.workbench.tool_transformation.any_to_message"
   }
 ]

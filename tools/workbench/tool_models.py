@@ -5,7 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 import importlib
 import logging
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, Iterable, List, Literal, Optional, Union
+from enum import Enum
 from pydantic import (
     BaseModel,
     Field,
@@ -400,11 +401,11 @@ class LLMResponseAsyncResult(ToolOutput):
 
 
 # =============================================================================
-# locate_file
+# locate_files
 # =============================================================================
 
 
-class LocateFileInput(BaseModel):
+class LocateFilesInput(BaseModel):
     """Input: exact filename to locate across common root directory.
 
     Accepts either a string or a Path object for filename.
@@ -418,7 +419,7 @@ class LocateFileInput(BaseModel):
         return str(v) if v is not None else None
 
 
-class LocateFilePayload(BaseModel):
+class LocateFilesPayload(BaseModel):
     """
     Payload: resolved path (if found).
 
@@ -432,10 +433,10 @@ class LocateFilePayload(BaseModel):
         return str(v) if v is not None else None
 
 
-class LocateFileResult(ToolOutput):
+class LocateFilesResult(ToolOutput):
     """Output: located file path under result."""
 
-    result: Optional[LocateFilePayload] = None
+    result: Optional[LocateFilesPayload] = None
 
 
 # =============================================================================
@@ -608,6 +609,116 @@ class SetScopeResult(ToolOutput):
     """Output: normalized scope under result."""
 
     result: Optional[SetScopePayload] = None
+
+
+# =============================================================================
+# select_files
+# =============================================================================
+
+
+class SortBy(str, Enum):
+    filename = "name"
+    path = "path"
+    mtime = "mtime"
+    ctime = "ctime"
+    atime = "atime"
+
+
+class Order(str, Enum):
+    asc = "asc"
+    desc = "desc"
+
+
+class SelectFilesInput(BaseModel):
+    """
+    Input model for select_files tool. All incoming file-like values are coerced to List[Path].
+    """
+
+    files: List[Path] = Field(default_factory=list)
+    include_ext: List[str] = Field(default_factory=list)
+    exclude_ext: List[str] = Field(default_factory=list)
+    include_name: List[str] = Field(default_factory=list)
+    exclude_name: List[str] = Field(default_factory=list)
+    sort_by: Optional[SortBy] = None
+    order: Order = Order.asc
+    offset: int = 0
+    limit: Optional[int] = None
+    tail: bool = False
+    hard_cap: int = 100
+
+    @field_validator("files", mode="before")
+    @classmethod
+    def _coerce_files_to_paths(cls, v: Any) -> List[Path]:
+        """
+        Accept str | Path | Iterable[str|Path] and convert to List[Path].
+        Expands '~' and strips whitespace; does NOT resolve() to avoid FS hits.
+        """
+
+        def to_path(x: Any) -> Optional[Path]:
+            if isinstance(x, Path):
+                return x
+            if isinstance(x, str) and x.strip():
+                return Path(x.strip()).expanduser()
+            return None
+
+        if v is None:
+            return []
+        if isinstance(v, (str, Path)):
+            p = to_path(v)
+            return [p] if p else []
+        if isinstance(v, Iterable):
+            out: List[Path] = []
+            for item in v:
+                p = to_path(item)
+                if p:
+                    out.append(p)
+            return out
+        raise TypeError("files must be a path, string, or iterable of those")
+
+    @field_serializer("files")
+    def _files_to_str(self, v: List[Path]) -> List[str]:
+        return [str(p) for p in v]
+
+
+class SelectFilesApplied(BaseModel):
+    """Applied/normalized arguments snapshot."""
+
+    tail: bool
+    offset: int
+    limit: Optional[int]
+    sort_by: Optional[str]
+    order: str
+    include_ext: List[str]
+    exclude_ext: List[str]
+    include_name: List[str]
+    exclude_name: List[str]
+    hard_cap: int
+
+
+class SelectFilesPayload(BaseModel):
+    """
+    Payload returned by select_files under 'result'.
+    Paths are serialized back to strings.
+    """
+
+    files: List[Path]
+    total: int
+    selected: int
+    applied: SelectFilesApplied
+
+    @field_serializer("files")
+    def _files_to_str(self, v: List[Path]) -> List[str]:
+        return [str(p) for p in v]
+
+
+class SelectFilesResult(BaseModel):
+    """
+    Standard tool output envelope for select_files.
+    """
+
+    status: StepStatus
+    message: Optional[str] = None
+    result: Optional[SelectFilesPayload] = None
 
 
 # =============================================================================

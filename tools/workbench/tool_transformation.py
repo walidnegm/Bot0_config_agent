@@ -129,6 +129,48 @@ def _pretty_join_text(chunks: Iterable[str], sep: str = "\n\n") -> str:
 # ---------------------------
 # Transform functions referenced in tool_transformation.json
 # ---------------------------
+def any_to_message(source_result: Any, **_) -> Dict[str, Any]:
+    """
+    source: * → target: echo_message
+    Convert any payload into a string message for echo.
+    Output: {"message": <str>}
+    """
+    if isinstance(source_result, str):
+        msg = source_result
+    else:
+        try:
+            msg = json.dumps(_as_dict(source_result), indent=2, ensure_ascii=False)
+        except Exception:
+            msg = str(source_result)
+    return {"message": msg}
+
+
+def contents_to_prompt(
+    source_result: Any, instruction: Optional[str] = None, **_
+) -> Dict[str, Any]:
+    """
+    source: read_files → target: llm_response_async
+    Build a prompt from file contents. Flexible to accept multiple shapes.
+    Output: {"prompt": <str>}
+    """
+    entries = _extract_content_entries(source_result)
+    if not entries:
+        # Try a permissive fallback: stringify the entire result
+        body = json.dumps(_as_dict(source_result), indent=2, ensure_ascii=False)
+        prompt = _pretty_join_text([instruction or "", "### DATA\n" + body]).strip()
+        return {"prompt": prompt}
+
+    parts: List[str] = []
+    for e in entries:
+        f = e.get("file") or ""
+        c = e.get("content") or ""
+        if f:
+            parts.append(f"##### FILE: {f}\n{c}")
+        else:
+            parts.append(c)
+    header = instruction or "Summarize or analyze the following file contents:"
+    prompt = _pretty_join_text([header, *parts])
+    return {"prompt": prompt}
 
 
 def dir_to_files(source_result: Any, **_) -> Dict[str, Any]:
@@ -186,6 +228,32 @@ def dir_to_files(source_result: Any, **_) -> Dict[str, Any]:
     return {"files": files} if files else {"files": []}
 
 
+def locate_to_select_files(source_result: Any, **_) -> Dict[str, Any]:
+    """
+    Prefer result.all_matches; fall back to result.path (single).
+    Output: {"files": [...]}
+    """
+    d = _as_dict(source_result)
+    r = d.get("result", d)
+    files: list[str] = []
+
+    if isinstance(r, dict):
+        # prefer new "files", fallback to legacy "all_matches", then "path"
+        for key in ("files", "all_matches"):
+            am = r.get(key)
+            if isinstance(am, list) and am:
+                files = [s for s in am if _is_pathlike_str(s)]
+                break
+        if not files:
+            p = r.get("first") or r.get("path")
+            if _is_pathlike_str(p):
+                files = [p]
+    elif isinstance(source_result, str) and _is_pathlike_str(source_result):
+        files = [source_result]
+
+    return {"files": files}
+
+
 def path_to_list(source_result: Any, **_) -> Dict[str, Any]:
     """
     source: locate_file → target: read_files
@@ -212,34 +280,6 @@ def path_to_files(source_result: Any, **_) -> Dict[str, Any]:
     Output: {"files": [<path>]}
     """
     return path_to_list(source_result)
-
-
-def contents_to_prompt(
-    source_result: Any, instruction: Optional[str] = None, **_
-) -> Dict[str, Any]:
-    """
-    source: read_files → target: llm_response_async
-    Build a prompt from file contents. Flexible to accept multiple shapes.
-    Output: {"prompt": <str>}
-    """
-    entries = _extract_content_entries(source_result)
-    if not entries:
-        # Try a permissive fallback: stringify the entire result
-        body = json.dumps(_as_dict(source_result), indent=2, ensure_ascii=False)
-        prompt = _pretty_join_text([instruction or "", "### DATA\n" + body]).strip()
-        return {"prompt": prompt}
-
-    parts: List[str] = []
-    for e in entries:
-        f = e.get("file") or ""
-        c = e.get("content") or ""
-        if f:
-            parts.append(f"##### FILE: {f}\n{c}")
-        else:
-            parts.append(c)
-    header = instruction or "Summarize or analyze the following file contents:"
-    prompt = _pretty_join_text([header, *parts])
-    return {"prompt": prompt}
 
 
 def summary_to_prompt(
@@ -272,22 +312,6 @@ def summary_to_prompt(
     header = instruction or "Use the following summaries:"
     prompt = _pretty_join_text([header, *chunks])
     return {"prompt": prompt}
-
-
-def any_to_message(source_result: Any, **_) -> Dict[str, Any]:
-    """
-    source: * → target: echo_message
-    Convert any payload into a string message for echo.
-    Output: {"message": <str>}
-    """
-    if isinstance(source_result, str):
-        msg = source_result
-    else:
-        try:
-            msg = json.dumps(_as_dict(source_result), indent=2, ensure_ascii=False)
-        except Exception:
-            msg = str(source_result)
-    return {"message": msg}
 
 
 def path_to_file_param(source_result: Any, **_) -> Dict[str, Any]:

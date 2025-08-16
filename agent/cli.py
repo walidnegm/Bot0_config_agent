@@ -276,11 +276,9 @@ def run_agent_loop(agent: AgentCore) -> None:
             logger.info("\n--- Results ---")
 
             for i, result in enumerate(tool_results.results):
-                display_result(result.model_dump())
+                display_result(result.model_dump(mode="json"))
                 logger.info(
-                    "RESULT_JSON for step %d:\n%s",
-                    i,
-                    json.dumps(result.model_dump(), indent=2, ensure_ascii=False),
+                    "RESULT_JSON for step %d:\n%s", i, result.model_dump_json(indent=2)
                 )
 
             logger.info("=" * 50)
@@ -368,11 +366,13 @@ def main():
             logger.info("\n--- Results ---")
 
             for i, result in enumerate(tool_results.results):
-                display_result(result.model_dump())
+                display_result(result.model_dump(mode="json"))
                 logger.info(
                     "RESULT_JSON for step %d:\n%s",
                     i,
-                    json.dumps(result.model_dump(), indent=2, ensure_ascii=False),
+                    json.dumps(
+                        result.model_dump(mode="json"), indent=2, ensure_ascii=False
+                    ),
                 )
 
             logger.info("=" * 50)
