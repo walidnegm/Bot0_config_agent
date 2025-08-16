@@ -9,7 +9,7 @@ import pytest
 import yaml
 from jinja2 import Environment, FileSystemLoader
 from configs.paths import AGENT_PROMPTS
-from tools.tool_registry import ToolRegistry
+from tools.workbench.tool_registry import ToolRegistry
 
 TEMPLATE_PATH = AGENT_PROMPTS
 

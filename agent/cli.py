@@ -19,15 +19,19 @@ python agent/cli.py --api-model gpt-4o
 python agent/cli.py --local-model llama_2_7b_chat --once "where are my model files"
 
 # Run one-off command with a cloud API model:
+
+* Using python -m
 Simple single step:
 python agent/cli.py --api-model claude-3-haiku-20240307 --once "list all files in my current directory"
-python agent/cli.py --api-model gpt-4.1-nano --once "list all files in my current directory"
-python agent/cli.py --local-model deepseek_coder_1_3b_gptq --once "list all files in my current directory and read the first file."
+python -m agent/cli --api-model gpt-4.1-nano --once "list all files in my current directory"
+python -m agent.cli --local-model deepseek_coder_1_3b_gptq --once "list all files in the ./agent directory and read the first file."
+python -m agent.cli --api-model gpt-4.1-mini --once "list all files in the ./agent directory and read the first file."
 
 More complex:
 python agent/cli.py --api-model claude-3-haiku-20240307 --once "summarize project config"
 python -m agent.cli --api-model gpt-4.1-mini --once "where are my config files?"
 python -m agent.cli --api-model claude-sonnet-4-20250514 --once "First find all config files in the project (excluding venv, models, etc.), then summarize each."
+python -m agent.cli --api-model gpt-4.1-mini --once "list all files in the ./agent directory and read the first 3 files."
 
 # Show all available models and their descriptions:
 python agent/cli.py --show-models-help
@@ -49,7 +53,7 @@ import json
 import argparse
 import datetime
 from pathlib import Path
-from typing import List, Any, Dict
+from typing import List, Any, Dict, Mapping, Sequence, Union
 from tabulate import tabulate
 from agent.core import AgentCore
 from agent_models.step_status import StepStatus
@@ -69,31 +73,97 @@ logger = logging.getLogger(__name__)
 USE_COLOR = True  # Set to False if piping output or in unsupported terminals
 
 
-def format_file_metadata(file_path: Path | str) -> List[str]:
+def format_file_metadata(item: Union[str, Path, Mapping[str, Any]]) -> dict:
     """
-    Return metadata for a file, including path, size, and creation timestamp.
-
-    Args:
-        file_path (str or Path): Path to the file.
-
-    Returns:
-        List[str]: [file path, size (KB/MB), creation time].
-                   On error, returns size and timestamp as '?'.
+    Accepts either a path (str/Path) or a dict with keys {"file", "content"}.
+    Returns a stable metadata dict without throwing on missing files.
     """
-    file_path = str(file_path)
+    if isinstance(item, Mapping):
+        file_path = item.get("file")
+        content = item.get("content", None)
+    else:
+        file_path = str(item)
+        content = None
+
+    if not file_path or not isinstance(file_path, (str, Path)):
+        raise ValueError(
+            "format_file_metadata: expected path or {'file','content'} dict"
+        )
+
+    p = Path(file_path)
+    exists = p.exists()
+
+    # Prefer on-disk size; fallback to content length
     try:
-        size = os.path.getsize(file_path)
-        created_ts = os.path.getctime(file_path)
-        size_str = (
-            f"{size / 1024:.1f} KB" if size < 1e6 else f"{size / (1024 * 1024):.1f} MB"
+        size_bytes = (
+            p.stat().st_size
+            if exists
+            else (len(content.encode("utf-8")) if isinstance(content, str) else None)
         )
-        created_str = datetime.datetime.fromtimestamp(created_ts).strftime(
-            "%Y-%m-%d %H:%M"
-        )
-        return [file_path, size_str, created_str]
     except Exception:
-        logger.error(f"Error getting metadata for {file_path}", exc_info=True)
-        return [file_path, "?", "?"]
+        size_bytes = None
+
+    # Modified time if available
+    modified = None
+    try:
+        if exists:
+            ts = p.stat().st_mtime
+            modified = datetime.datetime.fromtimestamp(ts).isoformat(timespec="seconds")
+    except Exception:
+        modified = None
+
+    # Optional text stats when we have in-memory content
+    preview = None
+    line_count = None
+    if isinstance(content, str):
+        lines = content.splitlines()
+        line_count = len(lines)
+        preview = "\n".join(lines[:30])  # first 30 lines
+
+    return {
+        "file": str(p),
+        "name": p.name,
+        "ext": p.suffix.lower(),
+        "exists": exists,
+        "size_bytes": size_bytes,
+        "lines": line_count,
+        "modified": modified,
+        "preview": preview,
+    }
+
+
+def build_metadata_list(read_files_output: Any) -> List[dict]:
+    """
+    Accepts the raw payload from a tool (e.g., read_files) or a plain list of paths/dicts.
+    - If it's a dict, prefer 'summary', then 'files', then 'results'.
+    - If it's a list, map each entry through format_file_metadata.
+    """
+    items: Sequence[Any]
+    if isinstance(read_files_output, dict):
+        items = (
+            read_files_output.get("summary")
+            or read_files_output.get("files")
+            or read_files_output.get("results")
+            or []
+        )
+    elif isinstance(read_files_output, (list, tuple)):
+        items = read_files_output
+    else:
+        items = []
+
+    out: List[dict] = []
+    for it in items:
+        try:
+            out.append(format_file_metadata(it))
+        except Exception as e:
+            print(f"[cli] ⚠️  Skipped item due to error: {e!r} — item={repr(it)[:200]}")
+    return out
+
+
+def _kb(x: Any) -> str:
+    if isinstance(x, (int, float)):
+        return f"{x/1024:.1f}"
+    return ""
 
 
 def bold(text: str) -> str:
@@ -104,64 +174,81 @@ def bold(text: str) -> str:
 def display_result(result: Dict[str, Any]) -> None:
     """
     Pretty-print and log a single tool step result for user and for sharing.
-    Prints formatted details to the CLI, logs both pretty and JSON output.
-
-    Args:
-        result (dict): Result dict for a single step (from ToolResult.model_dump()).
     """
     tool = result.get("tool", "Unknown Tool")
     status = result.get("status", StepStatus.SUCCESS)
+    message = result.get("message", "")
 
     # Skip noisy/low-level tools unless error
     if (
-        tool in {"read_file", "aggregate_file_content", "llm_response_async"}
+        tool in {"aggregate_file_content", "llm_response_async"}
         and status == StepStatus.SUCCESS
     ):
         return
 
-    message = result.get("message", "")
     print(f"\n🔧 Tool: {tool}")
     print(f"🗨️  Message: {message}")
-
     logger.info(f"\n🔧 Tool: {tool}")
     logger.info(f"🗨️  Message: {message}")
 
     result_payload = result.get("result")
-    pp = pprint.PrettyPrinter(indent=2, width=100, compact=False)
+
+    # If the payload includes files/summary/results, show a metadata table
+    def maybe_render_files_table(container: Any, title: str) -> bool:
+        metas = build_metadata_list(container)
+        if not metas:
+            return False
+        rows = [
+            [
+                m.get("file", ""),
+                "yes" if m.get("exists") else "no",
+                _kb(m.get("size_bytes")),
+                m.get("lines") if m.get("lines") is not None else "",
+                m.get("modified") or "",
+            ]
+            for m in metas
+        ]
+        headers = ["File", "Exists", "Size (KB)", "Lines", "Modified"]
+        print(f"\n📁 {bold(title)}:")
+        table = tabulate(rows, headers=headers, tablefmt="fancy_grid")
+        print(table)
+        logger.info(f"\n📁 {title}:\n{table}")
+        return True
+
+    # Smart rendering by common shapes
     if isinstance(result_payload, dict):
-        for field in ("matches", "files", "results"):
-            items = result_payload.get(field)
-            if isinstance(items, list) and items:
-                rows = [format_file_metadata(path) for path in items]
-                header = f"\n📁 {field.capitalize()}:"
-                table = tabulate(
-                    rows, headers=["Path", "Size", "Created"], tablefmt="fancy_grid"
-                )
-                print(f"\n📁 {bold(field.capitalize())}:")
-                print(table)
+        rendered = False
+        # Prefer showing files/summary/results as tables if present
+        for field in ("summary", "files", "results"):
+            if field in result_payload and maybe_render_files_table(
+                result_payload, field.capitalize()
+            ):
+                rendered = True
+                break
 
-                logger.info(header)
-                logger.info("\n" + table)
+        # Print other keys verbosely
+        if not rendered:
+            pp = pprint.PrettyPrinter(indent=2, width=100, compact=False)
+            # Avoid dumping giant content lists raw; collapse them
+            sanitized = dict(result_payload)
+            for k in ("summary", "files", "results"):
+                if k in sanitized and isinstance(sanitized[k], list):
+                    sanitized[k] = f"<{k}: {len(sanitized[k])} items>"
+            print("\n📌 Result (object):")
+            print(pp.pformat(sanitized))
+            logger.info(pp.pformat(sanitized))
 
-        for k, v in result_payload.items():
-            if k in {"matches", "files", "results"}:
-                continue
-            field_str = f"📌 {k}:"
-            pretty = pp.pformat(v)
-            print(pretty)
-            print(field_str)
-            logger.info(field_str)
-            logger.info(pretty)
     elif isinstance(result_payload, list):
-        print(f"\n📌 Result (list):")
-        pp.pprint(result_payload)
-        logger.info("📌 Result payload:")
-        logger.info(pp.pformat(result_payload))
+        # Could be a list of paths or {file,content} dicts
+        if not maybe_render_files_table(result_payload, "Files"):
+            pp = pprint.PrettyPrinter(indent=2, width=100, compact=False)
+            print("\n📌 Result (list):")
+            pp.pprint(result_payload)
+            logger.info(pp.pformat(result_payload))
     else:
-        print(f"\n📌 Result:")
+        print("\n📌 Result:")
         print(result_payload)
-        logger.info("📌 Result payload:")
-        logger.info(pp.pformat(result_payload))
+        logger.info(str(result_payload))
 
 
 def run_agent_loop(agent: AgentCore) -> None:

@@ -18,6 +18,7 @@
         "steps"
       ]
     },
+    "input_model": "AggregateFileContentInput",    
     "output_model": "AggregateFileContentResult"
   },
   "check_cuda": {
@@ -29,6 +30,7 @@
       "properties": {},
       "required": []
     },
+    "input_model": "CheckCudaInput",
     "output_model": "CheckCudaResult"
   },
   "echo_message": {
@@ -47,6 +49,7 @@
         "message"
       ]
     },
+    "input_model": "EchoMessageInput",
     "output_model": "EchoMessageResult"
   },
   "find_dir_size": {
@@ -63,16 +66,17 @@
       },
       "required": []
     },
+    "input_model": "FindDirSizeInput",
     "output_model": "FindDirSizeResult"
   },
   "find_dir_structure": {
     "name": "find_dir_structure",
-    "description": "Returns a hierarchical directory tree (files + folders) for a given path.",
+    "description": "Recursively returns the directory structure starting from a root path.",
     "import_path": "tools.find_dir_structure.find_dir_structure",
     "parameters": {
       "type": "object",
       "properties": {
-        "path": {
+        "root": {
           "type": "string",
           "description": "Root directory to scan (absolute or relative)."
         },
@@ -85,16 +89,17 @@
         }
       },
       "required": [
-        "path"
+        "root"
       ],
       "additionalProperties": false
     },
-    "output_model": "DirStructureResult"
+    "input_model": "FindDirStructureInput",
+    "output_model": "FindDirStructureResult"
   },
-  "find_file_by_keyword": {
-    "name": "find_file_by_keyword",
+  "find_files_by_keywords": {
+    "name": "find_files_by_keywords",
     "description": "Searches for files containing the keyword in their name under the given directory.",
-    "import_path": "tools.find_file_by_keyword.find_file_by_keyword",
+    "import_path": "tools.find_files_by_keywords.find_files_by_keywords",
     "parameters": {
       "type": "object",
       "properties": {
@@ -113,7 +118,9 @@
       "required": [
         "keywords"
       ]
-    },    "output_model": "FindFileByKeywordResult"
+    },
+    "input_model": "FindFilesByKeywordsInput",    
+    "output_model": "FindFilesByKeywordsResult"
   },
   "list_project_files": {
     "name": "list_project_files",
@@ -143,6 +150,7 @@
       },
       "required": []
     },
+    "input_model": "ListProjectFilesInput",
     "output_model": "ListProjectFilesResult"
   },
   "llm_response_async": {
@@ -161,7 +169,8 @@
         "prompt"
       ]
     },
-    "output_model": "LLMResponseResult"
+    "input_model": "LLMResponseAsyncInput",
+    "output_model": "LLMResponseAsyncResult"
   },
   "locate_file": {
     "name": "locate_file",
@@ -179,6 +188,7 @@
         "filename"
       ]
     },
+    "input_model": "LocateFileInput",
     "output_model": "LocateFileResult"
   },
   "make_virtualenv": {
@@ -197,6 +207,7 @@
         "path"
       ]
     },
+    "input_model": "MakeVirtualEnvInput",
     "output_model": "MakeVirtualEnvResult"
   },
   "read_files": {
@@ -219,6 +230,7 @@
         "path"
       ]
     },
+    "input_model": "ReadFilesInput",
     "output_model": "ReadFilesResult"
   },
   "retrieval_tool": {
@@ -237,6 +249,7 @@
         "query"
       ]
     },
+    "input_model": "RetrievalToolInput",
     "output_model": "RetrievalToolResult"
   },
   "seed_parser": {
@@ -255,6 +268,7 @@
         "file"
       ]
     },
+    "input_model": "SeedParserInput",
     "output_model": "SeedParserResult"
   },
   "set_scope": {
@@ -273,6 +287,7 @@
       },
       "required": []
     },
+    "input_model": "SetScopeInput",
     "output_model": "SetScopeResult"
   },
   "summarize_config": {
@@ -284,6 +299,7 @@
       "properties": {},
       "required": []
     },
+    "input_model": "SummarizeConfigInput",
     "output_model": "SummarizeConfigResult"
   },
   "summarize_files": {
@@ -305,6 +321,7 @@
         "files"
       ]
     },
+    "input_model": "SummarizeFilesInput",
     "output_model": "SummarizeFilesResult"
   }
 }

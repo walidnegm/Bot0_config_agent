@@ -1,0 +1,97 @@
+[
+  {
+    "source_tool": "find_dir_structure",
+    "target_tool": "read_files",
+    "transform_fn": "tools.workbench.tool_transformation.dir_to_files"
+  },
+  {
+    "source_tool": "list_project_files",
+    "target_tool": "read_files",
+    "transform_fn": null
+  },
+  {
+    "source_tool": "find_files_by_keywords",
+    "target_tool": "read_files",
+    "transform_fn": null
+  },
+  {
+    "source_tool": "locate_file",
+    "target_tool": "read_files",
+    "transform_fn": "tools.workbench.tool_transformation.path_to_list"
+  },
+  {
+    "source_tool": "list_project_files",
+    "target_tool": "summarize_files",
+    "transform_fn": null
+  },
+  {
+    "source_tool": "find_files_by_keywords",
+    "target_tool": "summarize_files",
+    "transform_fn": null
+  },
+  {
+    "source_tool": "locate_file",
+    "target_tool": "summarize_files",
+    "transform_fn": "tools.workbench.tool_transformation.path_to_files"
+  },
+  {
+    "source_tool": "find_dir_structure",
+    "target_tool": "summarize_files",
+    "transform_fn": "tools.workbench.tool_transformation.dir_to_files"
+  },
+  {
+    "source_tool": "read_files",
+    "target_tool": "llm_response_async",
+    "transform_fn": "tools.workbench.tool_transformation.contents_to_prompt"
+  },
+  {
+    "source_tool": "summarize_files",
+    "target_tool": "llm_response_async",
+    "transform_fn": "tools.workbench.tool_transformation.summary_to_prompt"
+  },
+  {
+    "source_tool": "summarize_config",
+    "target_tool": "llm_response_async",
+    "transform_fn": "tools.workbench.tool_transformation.summary_to_prompt"
+  },
+  {
+    "source_tool": "find_dir_size",
+    "target_tool": "echo_message",
+    "transform_fn": "tools.workbench.tool_transformation.any_to_message"
+  },
+  {
+    "source_tool": "retrieval_tool",
+    "target_tool": "echo_message",
+    "transform_fn": "tools.workbench.tool_transformation.any_to_message"
+  },
+  {
+    "source_tool": "seed_parser",
+    "target_tool": "echo_message",
+    "transform_fn": "tools.workbench.tool_transformation.any_to_message"
+  },
+  {
+    "source_tool": "check_cuda",
+    "target_tool": "echo_message",
+    "transform_fn": "tools.workbench.tool_transformation.any_to_message"
+  },
+  {
+    "source_tool": "make_virtualenv",
+    "target_tool": "echo_message",
+    "transform_fn": "tools.workbench.tool_transformation.any_to_message"
+  },
+  {
+    "source_tool": "locate_file",
+    "target_tool": "seed_parser",
+    "transform_fn": "tools.workbench.tool_transformation.path_to_file_param"
+  },
+  {
+    "source_tool": "set_scope",
+    "target_tool": "list_project_files",
+    "transform_fn": null
+  },
+  {
+    "source_tool": "set_scope",
+    "target_tool": "find_dir_size",
+    "transform_fn": null
+  }
+]

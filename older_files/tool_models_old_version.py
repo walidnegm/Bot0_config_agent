@@ -75,6 +75,11 @@ class AggregateFileContentOutput(ToolOutput):
     result: Optional[str] = None  # aggregated text blob
 
 
+# aggregate_file_content
+class AggregateFileContentResult(ToolOutput):
+    result: Optional[str] = None  # aggregated text blob
+
+
 # -----------------------------------------------------------------------------
 # check_cuda
 # -----------------------------------------------------------------------------
@@ -97,8 +102,12 @@ class EchoMessageInput(BaseModel):
     message: str
 
 
-class EchoMessageOutput(ToolOutput):
+class EchoMessageResult(ToolOutput):
     result: Optional[str] = None  # echoed message
+
+
+class EchoMessageOutput(ToolOutput):
+    result: Optional[EchoMessageResult] = None  # echoed message
 
 
 # -----------------------------------------------------------------------------
@@ -125,44 +134,30 @@ NodeType = Literal["directory", "file"]
 
 
 class DirectoryNode(BaseModel):
-    """
-    One node in the directory tree.
-
-    - For files: `type="file"`, no children.
-    - For directories: `type="directory"`, children is a (possibly empty) list.
-    """
-
-    name: str = Field(..., description="Base name of the file or directory.")
-    type: NodeType = Field(..., description="'directory' or 'file'.")
-    children: Optional[List["DirectoryNode"]] = Field(
-        default=None, description="Present only when type == 'directory'."
-    )
+    name: str
+    type: NodeType  # "directory" | "file"
+    children: Optional[List["DirectoryNode"]] = None
 
     @model_validator(mode="after")
     def _enforce_children_rules(self) -> "DirectoryNode":
         if self.type == "file" and self.children is not None:
-            # Keep API strict so your downstream logic is predictable
             raise ValueError("Files must not include 'children'.")
         if self.type == "directory" and self.children is None:
-            # The implementation always sets children=[] for directories,
-            # but allow either empty list or we auto-normalize:
             object.__setattr__(self, "children", [])
         return self
 
 
-DirectoryNode.model_rebuild()  # for forward refs
+DirectoryNode.model_rebuild()
 
 
 class FindDirStructureResult(BaseModel):
-    """
-    Wrapper returned by tools.find_dir_structure.find_dir_structure().
-    """
-
     status: StepStatus
-    message: str = Field("", description="Summary or error message.")
-    result: Optional[DirectoryNode] = Field(
-        None, description="Directory tree when status=='success'; None on error."
-    )
+    message: str = ""
+    result: Optional[DirectoryNode] = None
+
+
+class FindDirStructureOutput(ToolOutput):
+    result: Optional[FindDirStructureResult] = None
 
 
 # -----------------------------------------------------------------------------
@@ -248,8 +243,20 @@ class ReadFileItem(BaseModel):
     content: str
 
 
+class FileContent(BaseModel):
+    file: str
+    content: str
+
+
 class ReadFilesOutput(ToolOutput):
     result: Optional[List[ReadFileItem]] = None
+
+
+class ReadFilesResult(ToolOutput):
+    # Match the tool’s envelope; your executor normalizes to dicts
+    files: Optional[List[FileContent]] = None
+    count: Optional[int] = None
+    result: Optional[Any] = None  # keep permissive for executor normalization
 
 
 # -----------------------------------------------------------------------------

@@ -11,8 +11,8 @@ from agent.planner import Planner
 from agent.tool_chain_executor import ToolChainExecutor
 from agent_models.step_state import StepState
 from agent_models.step_status import StepStatus
-from tools.tool_registry import ToolRegistry
-from tools.tool_models import ToolResult, ToolResults
+from tools.workbench.tool_registry import ToolRegistry
+from tools.workbench.tool_models import ToolResult, ToolResults
 
 logger = logging.getLogger(__name__)
 

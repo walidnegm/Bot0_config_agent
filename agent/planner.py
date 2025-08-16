@@ -13,7 +13,7 @@ import logging
 from typing import Optional, Union, Type, Literal
 import asyncio
 from pydantic import BaseModel
-from tools.tool_registry import ToolRegistry
+from tools.workbench.tool_registry import ToolRegistry
 
 # from agent import llm_openai  # commented out: use a different api call function
 # from agent.intent_classifier_core import classify_describe_only

@@ -156,7 +156,7 @@ class ToolCall(BaseModel):
     Example:
         {
             "tool": "list_project_files",
-            "params": {"root": "."}
+            "params": {"dir": "."}
         }
     """
 
@@ -177,7 +177,7 @@ class ToolCall(BaseModel):
 
     model_config = ConfigDict(
         json_schema_extra={
-            "example": {"tool": "list_project_files", "params": {"root": "."}}
+            "example": {"tool": "list_project_files", "params": {"dir": "."}}
         }
     )
 
@@ -196,7 +196,7 @@ class ToolChain(BaseModel):
     Example:
         {
             "steps": [
-                {"tool": "list_project_files", "params": {"root": "."}},
+                {"tool": "list_project_files", "params": {"dir": "."}},
                 {"tool": "echo_message", "params": {"message": "<prev_output>"}}
             ]
         }
@@ -219,7 +219,7 @@ class ToolChain(BaseModel):
         json_schema_extra={
             "example": {
                 "steps": [
-                    {"tool": "list_project_files", "params": {"root": "."}},
+                    {"tool": "list_project_files", "params": {"dir": "."}},
                     {"tool": "echo_message", "params": {"message": "<prev_output>"}},
                 ]
             }

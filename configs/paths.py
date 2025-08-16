@@ -13,4 +13,7 @@ PROMPTS_DIR = ROOT_DIR / "prompts"
 AGENT_PROMPTS = PROMPTS_DIR / "agent_prompts.yaml.j2"
 
 TOOLS_DIR = ROOT_DIR / "tools"
-TOOL_REGISTRY = TOOLS_DIR / "tool_registry.json"
+WORKBENCH_DIR = TOOLS_DIR / "workbench"
+TOOL_REGISTRY = WORKBENCH_DIR / "tool_registry.json"
+TOOL_TRANSFORMATION = WORKBENCH_DIR / "tool_transformation.json"
+TOOL_TRANSFORMATION_FUNCTIONS = WORKBENCH_DIR / "tool_transformation.py"

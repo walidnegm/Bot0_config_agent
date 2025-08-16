@@ -1,7 +1,7 @@
 """
 tools/find_dir_size.py
 
-Tool to generate file size & number of files stats for a directory.
+Tool to compute the total size and number of files in a directory.
 """
 
 from pathlib import Path
@@ -11,14 +11,33 @@ from agent_models.step_status import StepStatus
 
 def find_dir_size(**kwargs):
     """
-    Find the file size of a directory and number of files.
+    Compute file statistics for a given directory, including the number of files
+    and their cumulative size.
+
+    Args:
+        **kwargs:
+            dir (str, optional): Path to the directory to scan. Defaults to ".".
+
+    Returns:
+        dict: Standardized result in the format:
+            {
+                "status": StepStatus,
+                "message": str,
+                "result": {
+                    "num_files": int,
+                    "total_size_bytes": int,
+                    "total_size_hr": str,
+                    "root": str
+                }
+            }
     """
-    root = kwargs.get("root") or "."
-    path = Path(root)
+    dir = kwargs.get("dir") or "."
+    path = Path(dir)
     if not path.exists() or not path.is_dir():
         return {
-            "status": StepStatus.SUCCESS,
-            "message": f"Directory '{root}' does not exist or is not a directory.",
+            "status": StepStatus.ERROR,
+            "message": f"Directory '{dir}' does not exist or is not a directory.",
+            "result": {},
         }
 
     total_size = 0
@@ -29,21 +48,21 @@ def find_dir_size(**kwargs):
         if file.is_file() and not file.is_symlink():
             try:
                 stat = file.stat()
-                # Track inode to avoid double-counting hard links
+                # Avoid double-counting hard links
                 if stat.st_ino in seen_inodes:
                     continue
                 seen_inodes.add(stat.st_ino)
                 num_files += 1
                 total_size += stat.st_size
             except Exception:
-                pass  # Ignore unreadable files
+                # Ignore unreadable files
+                pass
 
-    # Format in GB, MB, etc.
     size_hr = humanize.naturalsize(total_size, binary=True)
 
     return {
         "status": StepStatus.SUCCESS,
-        "message": f"{num_files} files, {size_hr} in '{root}'",
+        "message": f"{num_files} files, {size_hr} in '{dir}'",
         "result": {
             "num_files": num_files,
             "total_size_bytes": total_size,
