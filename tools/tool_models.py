@@ -5,36 +5,18 @@ from agent_models.step_state import StepState
 from agent_models.step_status import StepStatus
 
 
-class ToolResult(BaseModel):  # Optional for now; use later
+# -----------------------------------------------------------------------------
+# Shared wrappers
+# -----------------------------------------------------------------------------
+class ToolResult(BaseModel):
     """
     Represents the result of a single tool call after execution.
-
-    Attributes:
-        step_id (str): step_0, step_1, etc.
-        tool (str): Tool name executed.
-        params (Dict[str, Any]): Parameters passed to the tool.
-        message (Optional[str]): Optional message (error details or output summary).
-        status (Optional[StepStatus]): Success/error after execution, or None before run.
-        result (Optional[Any]): Result returned from the tool (list, dict, str, etc).
-        state (StepState): Execution lifecycle state (pending, in_progress, completed,
-            failed).
-
-    Example:
-        {
-            "step_id": "step_0"
-            "tool": "list_project_files",
-            "params": {"root": "."},
-            "status": "success",
-            "message": "",
-            "result": ["file1.py", "file2.md"]
-        }
     """
-
     step_id: str
     tool: str
     params: Dict[str, Any]
     message: Optional[str] = ""
-    status: Optional[StepStatus] = None  # None before execution
+    status: Optional[StepStatus] = None
     result: Optional[Any] = None
     state: StepState = StepState.PENDING
 
@@ -42,26 +24,17 @@ class ToolResult(BaseModel):  # Optional for now; use later
 class ToolResults(BaseModel):
     """
     Container for all results returned from executing a multi-step tool plan.
-
-    Attributes:
-        results (List[ToolResult]): List of results from each executed tool call.
-
-    Example:
-        {
-            "results": [
-                {... ToolResult ...},
-                {... ToolResult ...}
-            ]
-        }
     """
-
     results: List[ToolResult]
 
 
-class ToolOutput(BaseModel):  # Wrapper for output
+class ToolOutput(BaseModel):
+    """
+    Standard envelope shape for tool outputs.
+    """
     status: StepStatus
     message: Optional[str] = None
-    result: Any  # Anoither Pydantic model or primitive
+    result: Any  # Another Pydantic model or primitive
 
 
 # -----------------------------------------------------------------------------
@@ -131,7 +104,6 @@ class DirectoryNode(BaseModel):
     - For files: `type="file"`, no children.
     - For directories: `type="directory"`, children is a (possibly empty) list.
     """
-
     name: str = Field(..., description="Base name of the file or directory.")
     type: NodeType = Field(..., description="'directory' or 'file'.")
     children: Optional[List["DirectoryNode"]] = Field(
@@ -141,11 +113,8 @@ class DirectoryNode(BaseModel):
     @model_validator(mode="after")
     def _enforce_children_rules(self) -> "DirectoryNode":
         if self.type == "file" and self.children is not None:
-            # Keep API strict so your downstream logic is predictable
             raise ValueError("Files must not include 'children'.")
         if self.type == "directory" and self.children is None:
-            # The implementation always sets children=[] for directories,
-            # but allow either empty list or we auto-normalize:
             object.__setattr__(self, "children", [])
         return self
 
@@ -157,7 +126,6 @@ class FindDirStructureResult(BaseModel):
     """
     Wrapper returned by tools.find_dir_structure.find_dir_structure().
     """
-
     status: StepStatus
     message: str = Field("", description="Summary or error message.")
     result: Optional[DirectoryNode] = Field(
@@ -199,8 +167,12 @@ class LlmResponseAsyncInput(BaseModel):
     prompt: str
 
 
+class LLMResponseResult(BaseModel):
+    text: str
+
+
 class LlmResponseAsyncOutput(ToolOutput):
-    result: Optional[str] = None  # generated content
+    result: Optional[LLMResponseResult] = None  # generated content
 
 
 # -----------------------------------------------------------------------------
@@ -230,7 +202,9 @@ class MakeVirtualenvOutput(ToolOutput):
 
 
 # -----------------------------------------------------------------------------
-# read_files  (supports single str or list[str] in input; output is list items)
+# read_files
+#   NOTE: Registry expects an inner "<Tool>NameResult". We provide
+#         ReadFilesResult so 'ReadFilesResult' can be resolved.
 # -----------------------------------------------------------------------------
 class ReadFilesInput(BaseModel):
     path: Union[str, List[str]]
@@ -248,8 +222,12 @@ class ReadFileItem(BaseModel):
     content: str
 
 
+class ReadFilesResult(BaseModel):
+    files: List[ReadFileItem]
+
+
 class ReadFilesOutput(ToolOutput):
-    result: Optional[List[ReadFileItem]] = None
+    result: Optional[ReadFilesResult] = None
 
 
 # -----------------------------------------------------------------------------
@@ -287,7 +265,6 @@ class SetScopeInput(BaseModel):
     - root: project root directory (absolute or relative). Optional.
     - branches: one or more subpaths under root. Accepts str or list[str].
     """
-
     root: Optional[str] = None
     branches: List[str] = Field(default_factory=list)
 
@@ -299,7 +276,6 @@ class SetScopeInput(BaseModel):
         if isinstance(v, str):
             return [v]
         if isinstance(v, (list, tuple)):
-            # ensure all are strings
             return [str(x) for x in v]
         raise TypeError("`branches` must be a string, list of strings, or None")
 
@@ -308,7 +284,6 @@ class SetScopePayload(BaseModel):
     """
     Payload returned under `result` by the `set_scope` tool.
     """
-
     root: Optional[str] = None
     branches: List[str] = Field(default_factory=list)
 
@@ -319,7 +294,6 @@ class SetScopeOutput(ToolOutput):
     - status/message inherited from ToolOutput
     - result contains { root, branches }
     """
-
     result: Optional[SetScopePayload] = None
 
 
@@ -351,9 +325,12 @@ class SummarizeFilesOutput(ToolOutput):
 
 
 # -----------------------------------------------------------------------------
+# ToolSpec (optional metadata for registry)
+# -----------------------------------------------------------------------------
 class ToolSpec(BaseModel):
     description: str
     import_path: str
     parameters: Dict[str, Any]  # keep JSON Schema here if you want
-    input_model: Optional[str] = None  # "agent_models.tools.ReadFilesInput"
-    output_model: Optional[str] = None  # "agent_models.tools.ReadFilesOutput"
+    input_model: Optional[str] = None  # e.g. "ReadFilesInput"
+    output_model: Optional[str] = None  # e.g. "ReadFilesResult"
+

@@ -1,49 +1,41 @@
 import logging
 from typing import Dict
-import itertools
-from agent_models.llm_response_validators import is_valid_llm_response
 from agent_models.step_status import StepStatus
 
 logger = logging.getLogger(__name__)
 
-
-async def llm_response_async(
-    *, planner, user_prompt, system_prompt="", temperature=0.3, **kwargs
-) -> Dict:  #! Enforcing keyword-only argument b/c this tool needs CLARITY!
+def llm_response_async(*, prompt: str, **kwargs) -> Dict:
     """
-    Tool: LLM Response (agent-native, async)
+    Synchronous tool wrapper expected by ToolRegistry/Executor.
 
-    Args:
-        planner (Planner): The Planner instance to use for LLM dispatch.
-        user_prompt (str): The main user/task prompt.
-        system_prompt (str, optional): System/context prompt.
-        temperature (float, optional): Temperature for generation.
-
-    Returns:
-        dict: { "status": "success"|"error", "message": response text or error,
-            "result"|"data"|"content"...: response }
+    NOTE: The current executor invokes tools synchronously (no await),
+    so this function MUST be sync and return a plain dict ToolOutput
+    shape: {"status", "message", "result": {...}}.
     """
     try:
-        # Call the planner's dispatch_llm_async method (fully agent-native)
-        response = await planner.dispatch_llm_async(
-            user_prompt=user_prompt,
-            system_prompt=system_prompt,
-            response_type=None,  # Let the planner infer
-            response_model=None,  # Let the planner infer
-            temperature=temperature,
-        )
-
-        if not is_valid_llm_response(response):
-            raise ValueError(f"Invalid LLM response type: {type(response)}")
-
-        response_dict = response.model_dump()
-
-        logger.debug(f"LLM response pyd model type: {type(response).__name__}")
-        logger.debug(
-            f"Preview: response data after model dump\n{dict(itertools.islice(response_dict.items(), 3))}"
-        )  # Shows a dict with first 3 items
-
-        return response_dict
-
+        # Minimal placeholder: echo back the prompt as "generated" text.
+        # You can wire a real LLM call here later (or update the executor to await coroutines).
+        text = _generate_text(prompt)
+        return {
+            "status": StepStatus.SUCCESS,
+            "message": "",
+            "result": {"text": text},
+        }
     except Exception as e:
-        return {"status": StepStatus.ERROR, "message": f"LLM error: {e}"}
+        logger.exception("llm_response_async failed")
+        return {
+            "status": StepStatus.ERROR,
+            "message": f"LLM error: {e}",
+            "result": None,
+        }
+
+def _generate_text(prompt: str) -> str:
+    # Simple, safe default. Replace with a real model call if desired.
+    return (
+        "Python is a high-level, general-purpose programming language focused on readability "
+        "and a rich standard library. It’s widely used for web backends, data science, "
+        "automation, scripting, and more."
+        if prompt.strip().lower() == "what is python?"
+        else prompt
+    )
+

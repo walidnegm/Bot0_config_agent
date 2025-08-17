@@ -7,9 +7,8 @@ single vs multi-step planning, and plan validation.
 
 - All public APIs always return ToolChain (never dict, list, or ToolCall).
 """
-# at top with other imports
 from configs.paths import AGENT_PROMPTS
-
+import json
 import re
 import logging
 from typing import Optional, Union, Type, Literal, List, Dict, Any
@@ -17,18 +16,20 @@ import asyncio
 from pydantic import BaseModel
 from tools.tool_registry import ToolRegistry
 
-# from agent import llm_openai  # commented out: use a different api call function
-# from agent.intent_classifier_core import classify_describe_only
+# Intent classification
 from agent.intent_classifiers import (
     classify_describe_only_async,
     classify_task_decomposition_async,
 )
+
+# Local model manager + API bridges
 from agent.llm_manager import get_llm_manager
 from utils.llm_api_async import (
     call_openai_api_async,
     call_anthropic_api_async,
-    # call_gemini_api_async,
 )
+
+# Core agent models
 from agent_models.agent_models import (
     JSONResponse,
     TextResponse,
@@ -36,7 +37,9 @@ from agent_models.agent_models import (
     ToolCall,
     ToolChain,
 )
+
 from prompts.load_agent_prompts import load_planner_prompts, load_summarizer_prompt
+
 from configs.api_models import (
     GPT_4_1,
     GPT_4_1_MINI,
@@ -49,18 +52,17 @@ from configs.api_models import (
 )
 from configs.api_models import get_llm_provider
 
-# NEW: robust JSON plan extraction helpers
+# Robust JSON plan extraction helpers / constants
 from prompts.prompt_utils import (
-    extract_after_sentinel,
     extract_all_json_arrays,
     safe_parse_json_array,
-    FINAL_SENTINEL,
+    FINAL_SENTINEL,  # usually "FINAL_JSON"
 )
 
 logger = logging.getLogger(__name__)
 
-OPENAI = "openai"  # Standardized to lowercase
-ANTHROPIC = "anthropic"  # Standardized to lowercase
+OPENAI = "openai"
+ANTHROPIC = "anthropic"
 RESPONSE_TYPE = ["code", "json", "text"]
 API_LLM_MAX_TOKEN_DEFAULT: int = 1024
 API_LLM_TEMPERATURE_DEFAULT: float = 0.2
@@ -106,6 +108,7 @@ class Planner:
             logger.error("[Planner] No LLM model specified!")
             raise ValueError("Must specify either local_model_name or api_model_name.")
 
+        # (kept for potential param normalization later)
         self.param_aliases = {
             "file_path": "path",
             "filename": "path",
@@ -116,8 +119,8 @@ class Planner:
         self,
         user_prompt: str,
         system_prompt: str,
-        response_type: Literal["json", "text", "code"],
-        response_model: Type[BaseModel],  # Default to text to be safe
+        response_type: Literal["json", "text", "code"] = "text",
+        response_model: Type[BaseModel] = TextResponse,
     ) -> Union[
         JSONResponse,
         TextResponse,
@@ -131,7 +134,7 @@ class Planner:
         """
         # API LLMs: use async (faster)
         if self.api_model_name:
-            full_prompt = "\n".join([system_prompt, user_prompt])
+            full_prompt = "\n".join([system_prompt or "", user_prompt or ""])
             result = await self._call_api_llm_async(
                 prompt=full_prompt,
                 expected_res_type=response_type,
@@ -177,14 +180,14 @@ class Planner:
             user_task=instruction,
             template_path=AGENT_PROMPTS,   # force Jinja template
         )
-        
+
         # sanity: fail fast with a clear message if the wrong template gets loaded
         required_keys = [
             "system_prompt",
             "select_single_tool_prompt",
             "select_multi_tool_prompt",
             "return_json_only_prompt",
-            #"user_task_prompt",
+            # "user_task_prompt",
         ]
         missing = [k for k in required_keys if k not in prompts_dic]
         if missing:
@@ -195,11 +198,11 @@ class Planner:
 
         logger.info(f"[Planner] Loaded planner keys: {sorted(prompts_dic.keys())}")
 
-
         # 3) Combine prompt templates into user prompt (with "return JSON only" section)
-        
         def combine_prompts(select_tool_promt: str) -> str:
-            user_task_line = prompts_dic.get("user_task_prompt") or f"User task: {instruction}"
+            user_task_line = (
+                prompts_dic.get("user_task_prompt") or f"User task: {instruction}"
+            )
             user_prompt = (
                 select_tool_promt.strip()
                 + "\n"
@@ -209,16 +212,13 @@ class Planner:
             )
             return user_prompt
 
-
         system_prompt = prompts_dic.get("system_prompt", "")
         if is_single:
             user_prompt = combine_prompts(prompts_dic["select_single_tool_prompt"])
         else:
             user_prompt = combine_prompts(prompts_dic["select_multi_tool_prompt"])
 
-        # IMPORTANT CHANGE:
         # 4) Always request TEXT and parse JSON arrays ourselves.
-        #    This avoids the "example JSON got validated instead of final plan" bug.
         text_result = await self.dispatch_llm_async(
             user_prompt=user_prompt,
             system_prompt=system_prompt,
@@ -228,12 +228,20 @@ class Planner:
 
         # 5) Extract a single JSON array plan from the raw text
         if isinstance(text_result, TextResponse):
-            raw_text = getattr(text_result, "text", "") or getattr(text_result, "content", "") or ""
+            raw_text = (
+                getattr(text_result, "text", "")
+                or getattr(text_result, "content", "")
+                or ""
+            )
         else:
             # ultra-defensive: if a provider wrapped differently
             raw_text = str(text_result)
 
-        plan_list = self._extract_single_plan_from_text(raw_text, prefer_single=is_single)
+        plan_list = self._extract_single_plan_from_text(
+            raw_text=raw_text,
+            prefer_single=is_single,
+            fallback_prompt=instruction,  # use the user's ask, not the planner prompt dump
+        )
 
         # 6) Validate + normalize via tool registry into a ToolChain
         tool_chain = self._parse_and_validate_tool_calls(plan_list, instruction)
@@ -317,37 +325,45 @@ class Planner:
 
         return validated_result  # Return pydantic model
 
-    # === NEW: robust text -> single JSON plan extraction ===
-    def _extract_single_plan_from_text(self, raw_text: str, prefer_single: bool) -> List[Dict[str, Any]]:
+    def _extract_single_plan_from_text(
+        self,
+        raw_text: str,
+        prefer_single: bool,
+        *,
+        fallback_prompt: str,
+    ) -> List[Dict[str, Any]]:
         """
-        From the model's raw text, extract ALL JSON arrays, pick the best candidate,
-        and (if prefer_single) collapse to a single-step when multiple steps appear.
-
-        Strategy:
-        1) Prefer arrays that appear AFTER the sentinel (=== FINAL_JSON ===).
-        2) Fallback to arrays found anywhere in the text.
-        3) Choose the LAST valid array (usually the model's final answer, not examples).
-        4) If prefer_single and the array has >1 items, keep ONLY the first item.
+        Extract a JSON array plan *only* from text that appears AFTER the last FINAL_JSON
+        sentinel. Robust to stray spaces and CRLF. If nothing parses cleanly there,
+        fall back to a single llm_response_async with the original user instruction.
         """
-        arrays = extract_after_sentinel(raw_text, FINAL_SENTINEL)
-        if not arrays:
-            arrays = extract_all_json_arrays(raw_text)
+        # Find the LAST occurrence of a line equal to FINAL_SENTINEL (allow spaces)
+        # FINAL_SENTINEL is typically "FINAL_JSON"
+        sentinel = FINAL_SENTINEL.strip()
+        matches = list(re.finditer(rf"(?mi)^[ \t]*{re.escape(sentinel)}[ \t]*\r?$", raw_text))
+        if not matches:
+            logger.warning("[Planner] FINAL_JSON sentinel missing; falling back to LLM response.")
+            return [{"tool": "llm_response_async", "params": {"prompt": fallback_prompt}}]
 
+        last = matches[-1]
+        post = raw_text[last.end():]  # text after the last sentinel line
+
+        # Find JSON arrays in the post-sentinel text; pick the last valid one
+        candidates_raw = extract_all_json_arrays(post) or []
         candidates: List[List[Dict[str, Any]]] = []
-        for js in arrays:
+        for js in candidates_raw:
             arr = safe_parse_json_array(js)
             if (
                 isinstance(arr, list)
-                and arr
                 and all(isinstance(x, dict) and "tool" in x and "params" in x for x in arr)
             ):
                 candidates.append(arr)
 
         if not candidates:
-            logger.error("[Planner] No valid JSON plan found in model output. Falling back.")
-            return [{"tool": "llm_response_async", "params": {"prompt": raw_text[:4000]}}]
+            logger.warning("[Planner] No valid JSON plan found AFTER FINAL_JSON; falling back to LLM response.")
+            return [{"tool": "llm_response_async", "params": {"prompt": fallback_prompt}}]
 
-        plan = candidates[-1]  # last = most likely the real final plan
+        plan = candidates[-1]  # last valid array after the sentinel
         if prefer_single and len(plan) > 1:
             logger.info("[Planner] Reducing multi-step plan to single step based on classifier.")
             plan = [plan[0]]
@@ -396,7 +412,6 @@ class Planner:
 
             # Filter/normalize params from tool registry (typed)
             valid_keys = self.tool_registry.get_param_keys(tool_name)
-
             logger.debug(f"[Planner] Param keys for '{tool_name}': {sorted(valid_keys)}")
 
             filtered_params = {k: v for k, v in params.items() if k in valid_keys}
@@ -446,7 +461,7 @@ class Planner:
             }
         )
 
-        # 2. Read files from the output of list_project_files (limit to top 5)
+        # 2. Read files from the output of list_project_files (limit to top 10)
         for i in range(10):
             plan.append(
                 {
@@ -466,10 +481,11 @@ class Planner:
         system_prompt = prompts.get("system_prompt", "")
         user_prompt = "\n".join(v for k, v in prompts.items() if k != "system_prompt" and v)
 
+        # NOTE: llm_response_async input schema currently accepts 'prompt' only.
         plan.append(
             ToolCall(
                 tool="llm_response_async",
-                params={"system_prompt": system_prompt, "user_prompt": user_prompt},
+                params={"prompt": f"{system_prompt}\n{user_prompt}".strip()},
             )
         )
 
