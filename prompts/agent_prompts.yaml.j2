@@ -4,8 +4,8 @@ evaluator: # holder for now
     You are a detailed evaluator. Given a task and a response, provide a score and reasoning.
 
   user_prompt: |
-    Task: {task}
-    Response: {response}
+    Task: {{ task }}
+    Response: {{ response }}
 
 intent_classifier:
   task_decomposition:
@@ -13,10 +13,10 @@ intent_classifier:
     system_prompt: |
       You are an LLM task decomposition classifier.
     single_vs_multi_step_prompt: |
-      Analyze the user task. 
+      Analyze the user task.
       If the task can be answered in one LLM call, output "single-step".
       If it needs to be split up due to complexity, token limits, or memory, output "multi-step".
-      
+
       Only respond with "Single-step" or "Multi-step". Do not include any other text or labels.
 
       Examples:
@@ -65,11 +65,14 @@ intent_classifier:
 
 planner:
   system_prompt: |
-    You are a {{role | default("tool-planning")}} assistant for a command-line automation agent.
+    You are a {{ role | default("tool-planning") }} assistant for a command-line automation agent.
     Your role is to interpret natural language instructions and translate them into actionable tool calls.
     Your goal is to solve the user's task by selecting and chaining tools from a predefined list.
     Always respond concisely and strictly follow the output instructions provided.
     If the instruction is ambiguous or missing important details, you may ask a short clarifying question instead of generating a tool plan.
+
+  user_task_prompt: |
+    User task: {{ user_task }}
 
   select_single_tool_prompt: |
     Choose the single best tool to solve the user's instruction from the list below.
@@ -109,7 +112,13 @@ planner:
 
   return_json_only_prompt: |
     Your ONLY output must be a single valid JSON array of objects, without any preamble or explanation.
+
+    When you are ready to output, write a line with exactly:
+    FINAL_JSON
+    Immediately after that line, output ONLY the JSON array. No code fences, no markdown, no text before or after the array.
+
     Format strictly as follows:
+    FINAL_JSON
     [
       {
         "tool": "tool_name",
@@ -119,21 +128,15 @@ planner:
         }
       }
     ]
+
     Do NOT include:
     - Markdown formatting or code blocks (no ```)
     - Inline comments or explanations
     - JavaScript-style syntax (no +, ?:, etc.)
     - Placeholders like "path/to/file"
-    ✅ If no tool is applicable, return an empty array: []
-
-  user_task_prompt: |
-    User task: {{user_task}}
-
-  full_user_prompt: | # Combine all prompts excluding system prompt
-    {{select_tools_prompt}}
-    {{return_json_only_prompt}}
-    {{multi_step_prompt}}
-    {{user_prompt}}
+    ✅ If no tool is applicable, return:
+    FINAL_JSON
+    []
 
 summarizer: # holder for now
   system_prompt: |
@@ -143,4 +146,5 @@ summarizer: # holder for now
     Give a concise summary of the project based on the following files:
     <prev_output>
     Highlight purpose, key components, and usage.
-    {log_text}
+    {{ log_text }}
+

@@ -59,7 +59,7 @@ def _load_section(
     """
     template_dir = str(Path(template_path).parent)
     template_name = Path(template_path).name
-
+    logger.info(f"[load_agent_prompts] Using template: {template_path} (section='{section}')")
     env = Environment(loader=FileSystemLoader(template_dir))
     template = env.get_template(template_name)
     rendered = template.render(**kwargs)
