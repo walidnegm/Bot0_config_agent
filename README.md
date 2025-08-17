@@ -49,9 +49,9 @@ Change to your project directory and run example commands:
 ```bash
 cd ~/../Bot0_config_agent
 
-python -m agent.cli --once "where are my model files" --openai
-python -m agent.cli --once "where are my python files in agents dir" --openai
-python -m agent.cli --once "count files and directory size" --openai
+
+
+python -m agent.cli --api-model gpt-4.1-mini --once "list all files in the ./agent directory and summarize the first two files."
 ```
 
 ---

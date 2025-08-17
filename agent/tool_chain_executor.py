@@ -96,7 +96,7 @@ class ToolChainExecutor:
         self._next_params: dict[int, BaseModel] = {}
 
     # * Core function to execute the plan
-    def run_plan_with_fsm(self, plan: ToolChain) -> ToolResults:
+    def run_plan_with_fsm(self) -> ToolResults:
         """
         Execute a multi-step tool plan using an FSM controller for progression.
 

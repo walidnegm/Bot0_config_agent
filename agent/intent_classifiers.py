@@ -103,7 +103,8 @@ async def classify_task_decomposition_async(
     planner: "Planner",
 ) -> str:
     """
-    Classify if the instruction should be handled in a single step or needs multi-step planning.
+    Classify if the instruction should be handled in a single step or needs
+    multi-step planning.
 
     Args:
         instruction (str): The user instruction.

@@ -46,7 +46,6 @@ Notes:
 """
 
 import sys
-import os
 import logging
 import pprint
 import json

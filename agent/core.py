@@ -65,7 +65,7 @@ class AgentCore:
 
             logger.debug("[AgentCore] 🚀 Executing plan…")
 
-            tool_results = executor.run_plan_with_fsm(plan)
+            tool_results = executor.run_plan_with_fsm()
             logger.debug("[AgentCore] ✅ Execution complete.")
 
             return tool_results

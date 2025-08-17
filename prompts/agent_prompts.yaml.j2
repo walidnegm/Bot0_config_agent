@@ -73,41 +73,60 @@ planner:
   select_single_tool_prompt: |
     Choose the single best tool to solve the user's instruction from the list below.
 
-    Output one tool call as a JSON array (with one object), using only the parameter names shown.
-    Use only literal values. Do NOT reference prior steps.
+    Output one tool call as a JSON array (with one object).
+    Use only the parameter names shown.
+    Use only literal values.
 
     === Tool List ===
     {% for tool in tools %}
     - {{ tool.name }}({% for param, meta in tool.parameters.items() %}{{ param }}: {{ meta.type }}{% if not loop.last %}, {% endif %}{% endfor %}): {{ tool.description }}{% if tool.usage_hint %} — {{ tool.usage_hint }}{% endif %}
     {% endfor %}
 
-    Do not chain multiple tools. Do not include markdown, comments, or extra text.
-
     Example:
     [
-      { "tool": "read_files", "params": { "files": ["README.md"] } }
+      {
+        "tool": "read_files",
+        "params": {
+          "files": ["README.md"]
+        }
+      }
     ]
 
   select_multi_tool_prompt: |
-    Analyze the user's instruction and select the tools needed to solve the task, using the list below.
+    Analyze the user's instruction and select the tools needed to solve the task, using the tool list below.
 
     Output a JSON array of tool calls, in the order they should be executed.
     Use only the parameter names shown in the tool list.
-    Use ONLY literal values in params.
+    Each tool call should be an atomic step with concrete literal parameters.
+    Break down the task into the smallest tool calls needed and include only the tools required.
 
     === Tool List ===
     {% for tool in tools %}
     - {{ tool.name }}({% for param, meta in tool.parameters.items() %}{{ param }}: {{ meta.type }}{% if not loop.last %}, {% endif %}{% endfor %}): {{ tool.description }}{% if tool.usage_hint %} — {{ tool.usage_hint }}{% endif %}
     {% endfor %}
 
-    Only return a valid JSON array. Do not include markdown, comments, or extra text.
-
-    Example:
+    Example (task: list all files in ./agent and summarize the first two files):
     [
-      { "tool": "list_project_files", "params": { "dir": "." } },
-      { "tool": "read_files",          "params": {} },
-      { "tool": "summarize_files",     "params": {} },
-      { "tool": "llm_response_async",  "params": { "prompt": "Summarize the files briefly." } }
+      {
+        "tool": "list_project_files",
+        "params": {
+          "dir": "./agent",
+          "exclude": [],
+          "include": []
+        }
+      },
+      {
+        "tool": "select_files",
+        "params": {
+          "sort_by": "name",
+          "order": "asc",
+          "limit": 2
+        }
+      },
+      {
+        "tool": "summarize_files",
+        "params": {}
+      }
     ]
 
   return_json_only_prompt: |

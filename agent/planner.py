@@ -11,6 +11,7 @@ single vs multi-step planning, and plan validation.
 import re
 import logging
 from typing import Optional, Union, Type, Literal
+import json
 import asyncio
 from pydantic import BaseModel
 from tools.workbench.tool_registry import ToolRegistry
@@ -27,6 +28,7 @@ from utils.llm_api_async import (
     call_anthropic_api_async,
     # call_gemini_api_async,
 )
+from utils.prompt_logger import log_prompt_dict
 from agent_models.agent_models import (
     JSONResponse,
     TextResponse,
@@ -227,6 +229,17 @@ class Planner:
             r"\bsingle[- ]?step\b", task_decomp, re.IGNORECASE
         ):  # use re to make it more "tight"
             user_prompt = combine_prompts(prompts_dic["select_single_tool_prompt"])
+
+            # Log final planner prompt (human friendly)
+            log_prompt_dict(
+                logger=logger,
+                label="Planner",
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                mode="yaml",  # or "raw"/"json"
+                level=logging.INFO,
+            )
+
             result = await self.dispatch_llm_async(
                 user_prompt=user_prompt,
                 system_prompt=system_prompt,
@@ -235,6 +248,17 @@ class Planner:
             )
         else:  # multi-step: user prompt-> single tool & res model -> ToolCall
             user_prompt = combine_prompts(prompts_dic["select_multi_tool_prompt"])
+
+            # Log final planner prompt (human-friendly)
+            log_prompt_dict(
+                logger=logger,
+                label="Planner",
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                mode="yaml",  # or "raw"/"json"
+                level=logging.INFO,
+            )
+
             result = await self.dispatch_llm_async(
                 user_prompt=user_prompt,
                 system_prompt=system_prompt,

@@ -13,11 +13,12 @@ def find_project_root(
     marker=(".git", "requirements.txt", "pyproject.toml", "README.md"),
 ):
     """
-    Recursively find the root directory of the project by looking for a specific marker.
+    Recursively find the root directory of the project by looking for
+    a specific marker.
 
     Args:
-        starting_path (str or Path): The starting path to begin the search. Defaults to
-        the current script's directory.
+        starting_path (str or Path): The starting path to begin the search.
+            Defaults to the current script's directory.
         marker (str): The marker to look for (e.g., '.git', 'setup.py', 'README.md').
 
     Returns:
@@ -115,7 +116,8 @@ def log_and_flush(message: str, level: str = "info") -> None:
 
     Args:
         message (str): The log message.
-        level (str): Log level ('info', 'debug', 'warning', 'error', 'critical').
+        level (str): Log level ('info', 'debug', 'warning', 'error',
+            'critical').
     """
     log_func = getattr(logging, level.lower(), logging.info)
     log_func(message)
