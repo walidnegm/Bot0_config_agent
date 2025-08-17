@@ -48,7 +48,7 @@ Example Usage:
 
 import logging
 from pathlib import Path
-from typing import Optional, Literal, Dict, Any, Union, Type, Tuple, List
+from typing import Optional, Literal, Dict, Any, Union, Type, Tuple
 from pydantic import BaseModel, ValidationError
 import re
 import json
@@ -94,168 +94,6 @@ except Exception as e:
 ModelLoaderType = Literal["awq", "gptq", "llama_cpp", "transformers"]
 
 _LLM_MANAGER_CACHE = {}
-
-# ===== NEW: Sentinel and robust JSON extraction helpers =====
-_SENTINEL = "FINAL_JSON"
-
-
-def _strip_code_fences(s: str) -> str:
-    """
-    Remove common markdown code fences around content to reduce extraction failures.
-    """
-    # Remove ```json ... ``` and ``` ... ```
-    s = re.sub(r"```(?:json|JSON)?\s*", "", s)
-    s = s.replace("```", "")
-    return s
-
-    def _find_and_validate_json_array(self, segment: str, prefer_empty_on_error: bool) -> str:
-        """
-        Find the first JSON array of objects in 'segment' and return it as a string
-        if it parses cleanly. Otherwise return "[]".
-        """
-        # Match arrays like: [ {...}, {...}, {...} ]
-        pattern = r"\[\s*(?:\{.*?\}\s*,\s*)*\{.*?\}\s*\]"
-        m = re.search(pattern, segment, re.DOTALL)
-        if not m:
-            return "[]"
-        candidate = m.group(0).strip()
-        try:
-            # Ensure it is valid JSON
-            json.loads(candidate)
-            return candidate
-        except Exception:
-            return "[]" if prefer_empty_on_error else "[]"
-
-    def _extract_planner_json(self, text: str) -> str:
-        """
-        Prefer JSON that appears AFTER the FINAL_JSON sentinel. Ignore any arrays before it.
-        If the post-sentinel JSON is malformed/missing, return "[]".
-        If there is no sentinel at all, still try to find a JSON array, else "[]".
-        """
-        sentinel = "FINAL_JSON"
-        if sentinel in text:
-            # Take content AFTER the LAST sentinel (if multiple)
-            segment = text.split(sentinel)[-1]
-            return self._find_and_validate_json_array(segment, prefer_empty_on_error=True)
-        # No sentinel → best effort, but still validate strictly
-        return self._find_and_validate_json_array(text, prefer_empty_on_error=False)
-
-
-
-def _last_sentinel_index(s: str) -> int:
-    """
-    Find the last occurrence of a LINE that is exactly FINAL_JSON (ignoring surrounding spaces).
-    Returns the index *after* the sentinel line, or -1 if not found.
-    """
-    # Multiline search for a full line that equals FINAL_JSON
-    matches = list(re.finditer(r"(?mi)^\s*FINAL_JSON\s*$", s))
-    if not matches:
-        return -1
-    m = matches[-1]
-    return m.end()  # start parsing right after the sentinel line
-
-
-def _scan_balanced_json_array(s: str, start_pos: int) -> Optional[str]:
-    """
-    From start_pos, find the first '[' and return the substring of the *balanced*
-    JSON array including nested objects/arrays. Ignores brackets inside quoted strings.
-    Returns None if not found or unbalanced.
-    """
-    n = len(s)
-    i = start_pos
-
-    # find the first '[' after start_pos
-    while i < n and s[i] != "[":
-        i += 1
-    if i >= n:
-        return None
-
-    depth = 0
-    in_string = False
-    escape = False
-    start_idx = i
-
-    while i < n:
-        ch = s[i]
-        if in_string:
-            if escape:
-                escape = False
-            elif ch == "\\":
-                escape = True
-            elif ch == '"':
-                in_string = False
-        else:
-            if ch == '"':
-                in_string = True
-            elif ch == "[":
-                depth += 1
-            elif ch == "]":
-                depth -= 1
-                if depth == 0:
-                    # Found the matching closing bracket for the top-level array
-                    return s[start_idx : i + 1]
-        i += 1
-
-    # Unbalanced
-    return None
-
-
-def _find_all_top_level_arrays(s: str) -> List[str]:
-    """
-    Scan the whole string and return all well-formed top-level JSON arrays found.
-    This ignores arrays inside strings and ensures brackets are balanced.
-    """
-    arrays = []
-    n = len(s)
-    i = 0
-    while i < n:
-        if s[i] == "[":
-            arr = _scan_balanced_json_array(s, i)
-            if arr:
-                arrays.append(arr)
-                i += len(arr)
-                continue
-        i += 1
-    return arrays
-
-
-def _extract_json_array_text(raw_text: str) -> str:
-    """
-    Preferred extraction:
-      1) Look for last 'FINAL_JSON' line, then parse the first complete array after it.
-      2) If no sentinel, strip code fences and gather all arrays; choose the last valid one.
-      3) If nothing parseable, return "[]".
-    """
-    text = raw_text.strip()
-
-    # Try sentinel-first path
-    sentinel_pos = _last_sentinel_index(text)
-    if sentinel_pos != -1:
-        after = text[sentinel_pos:].lstrip()
-        arr = _scan_balanced_json_array(after, 0)
-        if arr:
-            logger.debug("[LLMManager] ✅ Extracted JSON via sentinel FINAL_JSON.")
-            return arr
-        else:
-            logger.warning(
-                "[LLMManager] ⚠️ FINAL_JSON found but array was not well-formed right after it."
-            )
-
-    # Fallback: scan entire text for arrays (after stripping code fences)
-    stripped = _strip_code_fences(text)
-    candidates = _find_all_top_level_arrays(stripped)
-    # Try candidates from the end (LLMs often put the final result last)
-    for cand in reversed(candidates):
-        try:
-            json.loads(cand)
-            logger.debug("[LLMManager] ✅ Extracted JSON via fallback array scan.")
-            return cand
-        except Exception:
-            continue
-
-    logger.warning("[LLMManager] ⚠️ No valid JSON array found. Returning empty array.")
-    return "[]"
-# ===== end helpers =====
 
 
 #! Single instance of model
@@ -419,6 +257,15 @@ class LLMManager:
 
             # * Critical logging to examine main output
             logger.info("[LLMManager] 🧪 Generated text (raw):\n%s", response)
+            # logger.info(
+            #     "[LLMManager] 🧪 Generated text (pretty):\n%s",
+            #     (
+            #         json.dumps(json.loads(response), indent=2, ensure_ascii=False)
+            #         if isinstance(response, str)
+            #         and response.strip().startswith(("[", "{"))
+            #         else response
+            #     ),
+            # )
 
             # Validation 1: response_type (code, text, json)
             validated_response = validate_response_type(response, expected_res_type)
@@ -692,16 +539,22 @@ class LLMManager:
         ), "Expected a Hugging Face tokenizer for AWQ models."
 
         full_prompt = self._format_prompt(user_prompt, system_prompt)
+        # input_ids = self.tokenizer(full_prompt, return_tensors="pt", padding=True).input_ids.to(
+        #     self.device
+        # )
         inputs = self.tokenizer(full_prompt, return_tensors="pt", padding=True)
         input_ids = inputs["input_ids"].to(self.device)
-        attention_mask = inputs["attention_mask"].to(self.device)
+        attention_mask = inputs["attention_mask"].to(
+            self.device
+        )  # Need to get attention_mask to pass into the generate method
+        # attention_mask = inputs["attention_mask"].to(self.device)
 
         logger.debug(f"[AWQ] 🔁 Prompt:\n{full_prompt}")
 
         with torch.no_grad():
             outputs = self.model.generate(
                 input_ids,
-                attention_mask=attention_mask,
+                attention_mask=attention_mask,  # add attention mask
                 eos_token_id=self.tokenizer.eos_token_id,
                 pad_token_id=self.tokenizer.pad_token_id,
                 do_sample=generation_kwargs.get("temperature", 0.3) > 0.0,
@@ -712,8 +565,13 @@ class LLMManager:
         logger.debug(f"[AWQ] 🧪 Decoded output:\n{repr(decoded)}")
 
         if expected_res_type == "json":
-            return self._extract_planner_json(decoded)
-        
+            match = re.search(r"\[\s*\{.*?\}\s*\]", decoded, re.DOTALL)
+            if match:
+                logger.debug("[AWQ] ✅ Extracted JSON block.")
+                return match.group(0)
+            logger.warning("[AWQ] ⚠️ No valid JSON array found. Returning empty array.")
+            return "[]"
+
         return decoded
 
     def _generate_with_gptq(
@@ -763,7 +621,12 @@ class LLMManager:
             logger.debug(f"[GPTQ] ✂️ Stripped prompt prefix:\n{repr(decoded)}")
 
         if expected_res_type == "json":
-            return self._extract_planner_json(decoded)
+            match = re.search(r"\[\s*\{.*?\}\s*\]", decoded, re.DOTALL)
+            if match:
+                logger.debug("[GPTQ] ✅ Extracted JSON block.")
+                return match.group(0)
+            logger.warning("[GPTQ] ⚠️ No valid JSON array found. Returning empty array.")
+            return "[]"
 
         return decoded
 
@@ -800,10 +663,14 @@ class LLMManager:
             "max_tokens": generation_kwargs.get("max_tokens", 256),
             "temperature": generation_kwargs.get("temperature", 0.2),
             "top_p": generation_kwargs.get("top_p", 0.95),
-            "top_k": generation_kwargs.get("top_k", 40),
+            "top_k": generation_kwargs.get(
+                "top_k", 40
+            ),  # llama-cpp does not allow None
             "stop": generation_kwargs.get("stop", ["</s>"]),
         }
 
+        # Safeguard to ensure no None values in kwargs (llama-cpp specific) and
+        # top_k is int
         # Safeguard: cast top_k to int if present
         if "top_k" in kwargs:
             kwargs["top_k"] = int(kwargs["top_k"])
@@ -816,7 +683,14 @@ class LLMManager:
         logger.debug(f"[llama_cpp] 🧪 Raw output:\n{repr(content)}")
 
         if expected_res_type == "json":
-            return self._extract_planner_json(decoded)
+            match = re.search(r"\[\s*\{.*?\}\s*\]", content, re.DOTALL)
+            if match:
+                logger.debug("[llama_cpp] ✅ Extracted JSON block.")
+                return match.group(0)
+            logger.warning(
+                "[llama_cpp] ⚠️ No valid JSON array found. Returning empty array."
+            )
+            return "[]"
 
         return content
 
@@ -865,6 +739,13 @@ class LLMManager:
             logger.debug(f"[Transformers] ✂️ Stripped prompt prefix:\n{repr(decoded)}")
 
         if expected_res_type == "json":
-            return self._extract_planner_json(decoded)
-        return decoded
+            match = re.search(r"\[\s*\{.*?\}\s*\]", decoded, re.DOTALL)
+            if match:
+                logger.debug("[Transformers] ✅ Extracted JSON block.")
+                return match.group(0)
+            logger.warning(
+                "[Transformers] ⚠️ No valid JSON array found. Returning empty array."
+            )
+            return "[]"
 
+        return decoded

@@ -58,7 +58,7 @@ lfm2_1_2b:
   quantization_method: FP
   config:
     model_id_or_path: LiquidAI/LFM2-1.2B
-    device: auto
+    device: cuda
     torch_dtype: bfloat16
     use_safetensors: true
     trust_remote_code: true
@@ -116,7 +116,7 @@ llama3_8b:
   quantization_method: FP
   config:
     model_id_or_path: meta-llama/Meta-Llama-3-8B-Instruct
-    device: auto
+    device: cuda
     torch_dtype: float16
     use_safetensors: true
   generation_config:

@@ -3,6 +3,8 @@ prompts/utils/prompt_utils.py
 
 Helper functions to for loading/generating/validating prompts.
 """
+import json, re
+from typing import List  # add List to your existing typing imports
 
 from pathlib import Path
 import logging
@@ -112,3 +114,34 @@ def get_prompts() -> Tuple[str, str]:
         return templates[system_key], templates[user_key]
     except KeyError as e:
         raise KeyError(f"Missing template key in file: {e}")
+
+
+    # === JSON-plan extraction helpers ===
+
+FINAL_SENTINEL = "=== FINAL_JSON ==="
+
+# conservative: match a top-level JSON array of objects
+_JSON_ARRAY_RE = re.compile(r'\[\s*{.*?}\s*\]', re.S)
+
+def extract_after_sentinel(text: str, sentinel: str = FINAL_SENTINEL) -> List[str]:
+    """Return all JSON arrays that appear AFTER the sentinel line."""
+    if not text:
+        return []
+    parts = text.split(sentinel)
+    tail = parts[-1] if parts else text
+    return [m.group(0) for m in _JSON_ARRAY_RE.finditer(tail)]
+
+def extract_all_json_arrays(text: str) -> List[str]:
+    """Return all JSON arrays found anywhere in the text."""
+    if not text:
+        return []
+    return [m.group(0) for m in _JSON_ARRAY_RE.finditer(text)]
+
+def safe_parse_json_array(s: str):
+    """Parse a JSON string; return list if it is a JSON array, else None."""
+    try:
+        v = json.loads(s)
+        return v if isinstance(v, list) else None
+    except Exception:
+        return None
+
