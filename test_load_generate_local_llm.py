@@ -21,7 +21,7 @@ MODEL_NAMES = [
 
 
 def main():
-    model_name = MODEL_NAMES[5]
+    model_name = MODEL_NAMES[0]
     logger.info(f"Testing Model: {model_name}")
 
     llm = LLMManager(model_name=model_name)
@@ -29,7 +29,7 @@ def main():
     prompt = "Q: Write a Python function that returns the sum of two numbers."
     logger.info(f"\n Prompt: {prompt}")
 
-    response = llm.generate(user_prompt=prompt, max_new_tokens=128, temperature=0.3)
+    response = llm.generate(user_prompt=prompt)
     logger.info(f"\nResponse: \n{response}")
     print(f"\nResponse: \n{response}")
 

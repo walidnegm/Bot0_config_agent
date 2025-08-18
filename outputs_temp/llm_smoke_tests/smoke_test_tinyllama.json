@@ -1,0 +1,6 @@
+{
+  "model": "tinyllama_1_1b_chat_gguf",
+  "user_prompt": "Hello! Can you write a short haiku about tiny llamas?",
+  "system_prompt": "You are a helpful assistant for smoke testing.",
+  "response": "status='success' message=None content='Smoke-colored, tiny llamas\\nBask in the warmth of the sun\\n\\nA sight to behold, a delight\\nTo watch them play and roam free'"
+}

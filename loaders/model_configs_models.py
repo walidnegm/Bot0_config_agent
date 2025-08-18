@@ -1,139 +1,161 @@
 # agent/model_config_models.py
 from __future__ import annotations
+
 from pathlib import Path
-import torch
 from typing import Optional, Literal, Union, Dict, Any
+import torch
 from pydantic import BaseModel, Field, field_validator
+from utils.find_root_dir import find_project_root
 
-
-# 🔁 Literal for known loader types
+# ------------------------------------------------------------
+# Loader type enum
+# ------------------------------------------------------------
 ModelLoaderType = Literal["llama_cpp", "gptq", "awq", "transformers"]
 
 
-class AWQLoaderConfig(BaseModel):
+# ------------------------------------------------------------
+# Common / helper models (HF-style)
+# ------------------------------------------------------------
+class HFLoadConfig(BaseModel):
+    """
+    Loader-agnostic HF load kwargs. These map 1:1 to kwargs passed to
+    AutoModelForCausalLM.from_pretrained(...) or quant loaders (after filtering).
+    """
+
     model_id_or_path: str
-    device: str = "auto"
-    torch_dtype: str = "float16"
-    use_safetensors: bool = True
-    fuse_qkv: Optional[bool] = None  # example AWQ-specific flag
-
-
-class GPTQLoaderConfig(BaseModel):
-    model_id_or_path: str
-    device: str = "auto"
-    torch_dtype: str = "float16"
-    disable_exllama: Optional[bool] = None  # example GPTQ-specific
-    group_size: Optional[int] = None
-
-
-# 📦 GGUF model config for llama.cpp
-class LlamaCppLoaderConfig(BaseModel):
-    model_id_or_path: str  # * In llama_cpp and gguf, model_path has to be a file path
-    n_ctx: int = 4096
-    n_gpu_layers: int = Field(
-        default_factory=lambda: -1 if torch.cuda.is_available() else 0
-    )
-    chat_format: str = "zephyr"
-    verbose: bool = False
-
-    @field_validator("model_id_or_path")
-    @classmethod
-    def resolve_and_validate_path(cls, v: str) -> str:
-        path = Path(v).expanduser()
-
-        # If not absolute, assume it's relative to project root
-        if not path.is_absolute():
-            from utils.find_root_dir import find_project_root
-
-            path = find_project_root() / path
-
-        path = path.resolve()
-        if not path.is_file():
-            raise ValueError(f"Model path does not exist or is not a file: {path}")
-
-        return str(path)
-
-
-# 🎯 Base config for all HF-style models (GPTQ, AWQ, Transformers)
-class TransformersLoaderConfig(BaseModel):
-    model_id_or_path: (
-        str  # * In transformer based models, model_id can be either id or file path
-    )
-    device: str = Field(
-        default_factory=lambda: "cuda" if torch.cuda.is_available() else "cpu"
-    )
-    torch_dtype: str = "float16"
-    use_safetensors: Optional[bool] = None  # transformers only
+    device_map: Optional[Union[str, Dict[str, Any]]] = None
+    max_memory: Optional[Dict[Union[int, str], str]] = None
+    offload_folder: Optional[str] = None
+    torch_dtype: Optional[str] = None
     trust_remote_code: Optional[bool] = False
     low_cpu_mem_usage: Optional[bool] = None
-    offload_folder: Optional[str] = None
 
     @field_validator("torch_dtype")
     @classmethod
-    def validate_torch_dtype(cls, v: str) -> str:
-        if not hasattr(torch, v):
-            raise ValueError(f"Invalid torch dtype: '{v}'")
+    def _validate_torch_dtype_str(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        s = str(v)
+        if not hasattr(torch, s):
+            raise ValueError(f"Invalid torch dtype: '{s}'")
+        return s
+
+
+class AWQQuantConfig(BaseModel):
+    """
+    AWQ-specific quantization options. Keep minimal; extend as needed.
+    """
+
+    fuse_layers: Optional[bool] = None
+    trust_remote_code: Optional[bool] = None
+
+
+class GPTQQuantConfig(BaseModel):
+    """
+    GPTQ-specific quantization options. Keep minimal; extend as needed.
+    """
+
+    bits: Optional[int] = None
+    group_size: Optional[int] = None
+    desc_act: Optional[bool] = None
+    trust_remote_code: Optional[bool] = None
+
+
+# ------------------------------------------------------------
+# Loader-specific config models
+# ------------------------------------------------------------
+class TransformersLoaderConfig(BaseModel):
+    """
+    Standard HF transformers loader config.
+    """
+
+    load_config: HFLoadConfig
+    # transformers usually has no quant_config; keep for forward-compat
+    quant_config: Optional[Dict[str, Any]] = None
+
+
+class AWQLoaderConfig(BaseModel):
+    """
+    AutoAWQ loader config with split load/quant sections.
+    """
+
+    load_config: HFLoadConfig
+    quant_config: Optional[AWQQuantConfig] = None
+
+
+class GPTQLoaderConfig(BaseModel):
+    """
+    GPTQ loader config with split load/quant sections.
+    """
+
+    load_config: HFLoadConfig
+    quant_config: Optional[GPTQQuantConfig] = None
+
+
+class LlamaCppLoaderConfig(BaseModel):
+    """
+    Llama.cpp / GGUF loader config.
+
+    Design:
+      • Keep YAML as the single source of truth. All llama.cpp kwargs live under
+        `load_config` exactly as written in YAML (e.g., `n_ctx`, `n_gpu_layers`,
+        `chat_format`, `verbose`, etc.). We do not normalize or reshape these.
+      • The only required key is `load_config.model_id_or_path`, which must point
+        to a local `.gguf` file for llama.cpp. We resolve it to an absolute path
+        at validation time so downstream code can pass it directly.
+      • The runtime loader will simply do:
+            kwargs = dict(config.load_config)
+            kwargs["model_path"] = kwargs.pop("model_id_or_path")
+            self.model = Llama(**kwargs)
+        preserving your YAML’s keyword structure.
+
+    Expected YAML snippet:
+        tinyllama_1_1b_chat_gguf:
+          loader: llama_cpp
+          load_config:
+            model_id_or_path: models/tinyllama/tinyllama.Q4_K_M.gguf
+            n_ctx: 4096
+            n_gpu_layers: -1
+            chat_format: zephyr
+            verbose: true
+          generation_config:
+            max_tokens: 512
+            temperature: 0.3
+            top_p: 0.95
+    """
+
+    load_config: Dict[str, Any] = Field(default_factory=Dict)
+    # quant_config intentionally NOT used for llama.cpp
+
+    @field_validator("load_config")
+    @classmethod
+    def validate_load_config(cls, v: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Validate: model_id_or_path must be a valid directory path under the root project
+        """
+        model_path = v.get("model_id_or_path")
+        if not model_path:
+            raise ValueError("load_config.model_id_or_path is required for llama_cpp")
+
+        p = Path(model_path).expanduser()
+        if not p.is_absolute():
+            p = (find_project_root() / p).resolve()
+        if not p.is_file():
+            raise ValueError(f"Model path does not exist or is not a file: {p}")
+
+        v["model_id_or_path"] = str(p)
         return v
 
-    def resolved_dtype(self) -> torch.dtype:
-        return getattr(torch, self.torch_dtype)
 
-
-class AWQLoaderEntry(BaseModel):
-    loader: Literal["awq"]
-    config: AWQLoaderConfig
-
-
-class GPTQLoaderEntry(BaseModel):
-    loader: Literal["gptq"]
-    config: GPTQLoaderConfig
-
-
-class LlamaCppLoaderEntry(BaseModel):
-    loader: Literal["llama_cpp"]
-    config: LlamaCppLoaderConfig
-
-
-class TransformersLoaderEntry(BaseModel):
-    loader: Literal["transformers"]
-    config: TransformersLoaderConfig
-
-
-# 🧠 Top-level entry loaded from models_configs.json
+# ------------------------------------------------------------
+# Top-level normalized entry
+# ------------------------------------------------------------
 class LoaderConfigEntry(BaseModel):
     """
-    Represents a validated model configuration entry, including the loader type
-    and its corresponding configuration.
-
-    This is the top-level structure used when parsing a single model entry
-    from `models_configs.yaml` or `models_configs.json`.
-
-    The `loader` field determines which backend will be used to load and run
-    the model (e.g., 'llama_cpp', 'gptq', 'awq', 'transformers'), and the
-    `config` field holds the model-specific settings validated against the
-    appropriate Pydantic model.
-
-    Fields:
-        loader (ModelLoaderType):
-            A literal string indicating which runtime should be used to load the model.
-            Supported values: "llama_cpp", "gptq", "awq", "transformers".
-
-        config (Union[...]):
-            The model configuration, validated against one of the loader-specific
-            Pydantic models:
-            - LlamaCppLoaderConfig
-            - GPTQLoaderConfig
-            - AWQLoaderConfig
-            - TransformersLoaderConfig
-
-        generation_config (Optional[Dict[str, Any]]):
-            Generate method configuration.
-    Methods:
-        parse_with_loader(name: str, data: dict) -> LoaderConfigEntry:
-            Factory method to parse and validate a model entry based on
-                the loader type.
-            Automatically dispatches the correct Pydantic config schema for
-                the given loader.
+    Neutral top-level model configuration entry:
+      - loader: which backend to use
+      - config: loader-specific, validated model (above)
+      - generation_config: inference kwargs (temperature, max_new_tokens, ...)
     """
 
     loader: ModelLoaderType
@@ -146,38 +168,88 @@ class LoaderConfigEntry(BaseModel):
     generation_config: Optional[Dict[str, Any]] = None
 
     @classmethod
-    def parse_with_loader(cls, name: str, data: Dict[str, Any]) -> LoaderConfigEntry:
+    def parse_with_loader(cls, name: str, data: Dict[str, Any]) -> "LoaderConfigEntry":
         """
-        Parse and validate a model config entry using the appropriate config class
-        based on the loader type.
+        Accepts any of the following shapes and normalizes them:
 
-        Args:
-            name (str): Name of the model (used for error messages).
-            data (dict): Dictionary containing 'loader' and 'config' keys.
+        a) Legacy:
+           {
+             "loader": "...",
+             "config": { ... loader-specific ... },
+             "generation_config": {...}
+           }
 
-        Returns:
-            LoaderConfigEntry: Fully validated model entry.
+        b) New format (top-level blocks):
+           {
+             "loader": "...",
+             "load_config": {...},      # required for HF loaders
+             "quant_config": {...},     # optional (AWQ/GPTQ)
+             "generation_config": {...}
+           }
 
-        Raises:
-            ValueError: If required fields are missing or loader type is unsupported.
+        c) Legacy-flat HF config (rare):
+           {
+             "loader": "transformers" | "awq" | "gptq",
+             "config": { "model_id_or_path": "...", "torch_dtype": "...", ... }
+           }
+           (We auto-wrap that into {"load_config": {...}}.)
         """
+        if not isinstance(data, dict):
+            raise ValueError(
+                f"Model entry for {name} must be a mapping, got {type(data)}"
+            )
+
+        # --- Normalize new-format top-level keys into a 'config' dict ---
+        if "config" not in data and ("load_config" in data or "quant_config" in data):
+            data = dict(data)  # shallow copy
+            cfg: Dict[str, Any] = {}
+            if "load_config" in data:
+                cfg["load_config"] = data.pop("load_config")
+            if "quant_config" in data:
+                cfg["quant_config"] = data.pop("quant_config")
+            data["config"] = cfg
 
         if "loader" not in data or "config" not in data:
             raise ValueError(f"Missing loader or config block for model: {name}")
 
         loader = data["loader"]
-        cfg = data["config"]
+        cfg = data["config"] or {}
         gen_cfg = data.get("generation_config")
 
-        if loader == "llama_cpp":
-            config = LlamaCppLoaderConfig(**cfg)
-        elif loader == "gptq":
-            config = GPTQLoaderConfig(**cfg)
+        # --- Auto-wrap legacy flat dicts for HF loaders into load_config ---
+        if loader in ("transformers", "awq", "gptq"):
+            if "load_config" not in cfg and (
+                "model_id_or_path" in cfg
+                or "device_map" in cfg
+                or "torch_dtype" in cfg
+                or "trust_remote_code" in cfg
+            ):
+                cfg = {"load_config": cfg}
+
+        # --- Dispatch to concrete config models ---
+        if loader == "transformers":
+            config_obj = TransformersLoaderConfig(**cfg)
         elif loader == "awq":
-            config = AWQLoaderConfig(**cfg)
-        elif loader == "transformers":
-            config = TransformersLoaderConfig(**cfg)
+            config_obj = AWQLoaderConfig(**cfg)
+        elif loader == "gptq":
+            config_obj = GPTQLoaderConfig(**cfg)
+        elif loader == "llama_cpp":
+            # remains flat
+            config_obj = LlamaCppLoaderConfig(**cfg)
         else:
             raise ValueError(f"Unsupported loader: {loader}")
 
-        return cls(loader=loader, config=config, generation_config=gen_cfg)
+        return cls(loader=loader, config=config_obj, generation_config=gen_cfg)
+
+
+__all__ = [
+    "ModelLoaderType",
+    "HFLoadConfig",
+    "AWQQuantConfig",
+    "GPTQQuantConfig",
+    "TransformersLoaderConfig",
+    "AWQLoaderConfig",
+    "GPTQLoaderConfig",
+    "LlamaCppLoaderConfig",
+    "LoaderConfigEntry",
+]
