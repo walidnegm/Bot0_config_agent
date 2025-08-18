@@ -3,34 +3,37 @@
 qwen3_1_7b_instruct_gptq:
   loader: gptq
   model_id: kaitchup/Qwen3-1.7B-autoround-4bit-gptq
-  quantization_method: GPTQ
+  quantization: GPTQ
   config:
+    model_path: models/qwen3_1_7b_instruct_gptq
     model_id_or_path: models/qwen3_1_7b_instruct_gptq
     device: cuda
     torch_dtype: float16
   generation_config:
     max_new_tokens: 512
-    temperature: 0.4  # Qwen models are ranged btw 0 and 2.0
+    temperature: 0.4        # Qwen models 0–2.0
     top_p: 0.9
 
 qwen3_4b_awq:
   loader: awq
   model_id: Qwen/Qwen3-4B-AWQ
-  quantization_method: AWQ
+  quantization: AWQ
   config:
+    model_path: models/qwen3_4b_awq
     model_id_or_path: models/qwen3_4b_awq
     device: cuda
     torch_dtype: float16
   generation_config:
     max_new_tokens: 512
-    temperature: 0.4  # Qwen models are ranged btw 0 and 2.0
+    temperature: 0.4
     top_p: 0.9
 
 gemma_2_2b_gptq:
   loader: gptq
   model_id: shuyuej/gemma-2-2b-it-GPTQ
-  quantization_method: GPTQ
+  quantization: GPTQ
   config:
+    model_path: models/gemma_2_2b_gptq
     model_id_or_path: models/gemma_2_2b_gptq
     device: cuda
     torch_dtype: float16
@@ -42,21 +45,23 @@ gemma_2_2b_gptq:
 deepseek_coder_1_3b_gptq:
   loader: gptq
   model_id: TheBloke/deepseek-coder-1.3b-instruct-GPTQ
-  quantization_method: GPTQ
+  quantization: GPTQ
   config:
+    model_path: models/deepseek_coder_1_3b_gptq
     model_id_or_path: models/deepseek_coder_1_3b_gptq
     device: cuda
     torch_dtype: float16
   generation_config:
     max_new_tokens: 512
-    temperature: 0.4  # DeepSeek models are ranged btw 0 and 2.0
+    temperature: 0.4        # DeepSeek models 0–2.0
     top_p: 0.95
 
 lfm2_1_2b:
   loader: transformers
   model_id: LiquidAI/LFM2-1.2B
-  quantization_method: FP
+  quantization: FP
   config:
+    model_path: LiquidAI/LFM2-1.2B
     model_id_or_path: LiquidAI/LFM2-1.2B
     device: cuda
     torch_dtype: bfloat16
@@ -66,14 +71,17 @@ lfm2_1_2b:
     offload_folder: offload
   generation_config:
     max_new_tokens: 512
-    temperature: 0.2
-    top_p: 0.95
+    temperature: 0.0
+    top_p: 1.0
+    # Optional hard stops if your LLMManager supports them:
+    # stop: ["\nUser:", "\nSystem:", "\nAssistant:"]
 
 phi_3_5_mini_awq:
   loader: awq
   model_id: thesven/Phi-3.5-mini-instruct-awq
-  quantization_method: AWQ
+  quantization: AWQ
   config:
+    model_path: models/phi_3_5_mini_awq
     model_id_or_path: models/phi_3_5_mini_awq
     device: cuda
     torch_dtype: float16
@@ -85,8 +93,9 @@ phi_3_5_mini_awq:
 llama_2_7b_chat_gptq:
   loader: gptq
   model_id: TheBloke/Llama-2-7B-Chat-GPTQ
-  quantization_method: GPTQ
+  quantization: GPTQ
   config:
+    model_path: models/llama_2_7b_chat_gptq
     model_id_or_path: models/llama_2_7b_chat_gptq
     device: cuda
     torch_dtype: float16
@@ -99,8 +108,9 @@ llama_2_7b_chat_gptq:
 llama_3_2_3b_gptq:
   loader: gptq
   model_id: shuyuej/Llama-3.2-3B-Instruct-GPTQ
-  quantization_method: GPTQ
+  quantization: GPTQ
   config:
+    model_path: models/llama_3_2_3b_gptq
     model_id_or_path: models/llama_3_2_3b_gptq
     device: cuda
     torch_dtype: float16
@@ -113,8 +123,9 @@ llama_3_2_3b_gptq:
 llama3_8b:
   loader: transformers
   model_id: meta-llama/Meta-Llama-3-8B-Instruct
-  quantization_method: FP
+  quantization: FP
   config:
+    model_path: meta-llama/Meta-Llama-3-8B-Instruct
     model_id_or_path: meta-llama/Meta-Llama-3-8B-Instruct
     device: cuda
     torch_dtype: float16
@@ -128,19 +139,20 @@ llama3_8b:
 tinyllama_1_1b_chat_gguf:
   loader: llama_cpp
   model_id: TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF
-  quantization_method: GGUF
+  quantization: GGUF
   config:
+    model_path: models/tinyllama_1_1b_chat_gguf/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
     model_id_or_path: models/tinyllama_1_1b_chat_gguf/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
     n_ctx: 4096
     n_gpu_layers: -1
     chat_format: zephyr
     verbose: true
   generation_config:
-    max_tokens: 512   # llama-cpp uses max_tokens instead of max_new_tokens
+    max_tokens: 512         # llama.cpp uses max_tokens
     temperature: 0.3
     top_p: 0.95
 
 # local LLMs saved in project should be under /models/"model_name" dir, such as:
 # - models/tinyllama_1_1b_chat_gguf/
 # - models/qwen3_4b_awq/
-# ...
+

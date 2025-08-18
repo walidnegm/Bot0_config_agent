@@ -129,11 +129,22 @@ planner:
       }
     ]
 
+    Example final output:
+    FINAL_JSON
+    [
+     { "tool": "list_project_files", "params": { "root": "prompts" } }
+    ]
+    
     Do NOT include:
     - Markdown formatting or code blocks (no ```)
     - Inline comments or explanations
     - JavaScript-style syntax (no +, ?:, etc.)
     - Placeholders like "path/to/file"
+
+    Rules:
+    - Do NOT include markdown/code fences or extra text.
+    - Return an empty array ONLY if truly no tool applies.
+    - If the task mentions files, folders, paths, projects, or directories, THERE IS an applicable tool.
     ✅ If no tool is applicable, return:
     FINAL_JSON
     []

@@ -1,13 +1,12 @@
 """
 agent/planner.py
+
 Tool planning: Converts user instructions into a validated ToolChain (Pydantic) plan
 using either a local or cloud LLM. Handles prompt construction, intent detection,
 single vs multi-step planning, and plan validation.
 
 - All public APIs always return ToolChain (never dict, list, or ToolCall).
 """
-from __future__ import annotations
-
 from configs.paths import AGENT_PROMPTS
 import re
 import logging
@@ -109,14 +108,12 @@ class Planner:
             raise ValueError("Must specify either local_model_name or api_model_name.")
 
         # Param alias normalization (applied before validation)
-        # NOTE: Do NOT map 'root' -> 'path' globally; many tools legitimately accept 'root'.
         self.param_aliases = {
             "file_path": "path",
             "filename": "path",
             "filepath": "path",
+            "root": "path",          # IMPORTANT: fix for tools expecting `path`
             "dir": "path",
-            "directory": "path",
-            "folder": "path",
         }
 
     async def dispatch_llm_async(
@@ -136,7 +133,7 @@ class Planner:
         Asynchronously routes a language model call to either a remote API LLM (e.g., OpenAI,
         Anthropic) or a local model (via LLMManager) using an executor thread.
         """
-        # API LLMs: use async
+        # API LLMs: use async (faster)
         if self.api_model_name:
             full_prompt = "\n".join([system_prompt or "", user_prompt or ""])
             result = await self._call_api_llm_async(
@@ -159,7 +156,6 @@ class Planner:
                 ),
             )
             return result
-
         else:
             raise ValueError(
                 f"Unknown model name: {self.api_model_name or self.local_model_name}"
@@ -175,56 +171,34 @@ class Planner:
         """
         instruction = instruction.strip()
 
-        # --- 0) Intent classification (hardened) ---
-        try:
-            intent = await self._classify_intent_async(instruction)
-            logger.info(f"[Planner] Classified intent: {intent}")
-            # IMPORTANT: Only short-circuit to LLM for explicit "describe_project".
-            if intent.strip().lower() == "describe_project":
-                logger.info(
-                    "[Planner] Describe-only intent; routing directly to LLM async."
-                )
-                return self._fallback_llm_response(instruction)
-        except Exception as e:
-            logger.warning(
-                f"[Planner] Intent classification failed: {e}. Continuing with planning."
+        # 1) Task decomposition: single or multi-step
+        task_decomp = await classify_task_decomposition_async(instruction, self)
+        logger.info(f"[Planner] Task decomposition result: {task_decomp}")
+        is_single = bool(re.search(r"\bsingle[- ]?step\b", task_decomp, re.IGNORECASE))
+
+        # 2) Load planner prompt templates (Jinja2 YAML-based)
+        prompts_dic = load_planner_prompts(
+            user_task=instruction,
+            template_path=AGENT_PROMPTS,   # force Jinja template
+        )
+
+        # sanity: fail fast with a clear message if the wrong template gets loaded
+        required_keys = [
+            "system_prompt",
+            "select_single_tool_prompt",
+            "select_multi_tool_prompt",
+            "return_json_only_prompt",
+        ]
+        missing = [k for k in required_keys if k not in prompts_dic]
+        if missing:
+            raise KeyError(
+                f"Planner prompt missing keys {missing}. "
+                f"Template in use: {AGENT_PROMPTS}"
             )
 
-        # --- 1) Task decomposition (single vs multi step) ---
-        try:
-            task_decomp = await classify_task_decomposition_async(instruction, self)
-            logger.info(f"[Planner] Task decomposition result: {task_decomp}")
-            is_single = bool(
-                re.search(r"\bsingle[- ]?step\b", task_decomp, re.IGNORECASE)
-            )
-        except Exception as e:
-            logger.warning(f"[Planner] Task decomposition failed: {e}. Assuming single-step.")
-            is_single = True  # Conservative default
+        logger.info(f"[Planner] Loaded planner keys: {sorted(prompts_dic.keys())}")
 
-        # --- 2) Load planner prompt templates ---
-        try:
-            prompts_dic = load_planner_prompts(
-                user_task=instruction,
-                template_path=AGENT_PROMPTS,  # force Jinja template
-            )
-            required_keys = [
-                "system_prompt",
-                "select_single_tool_prompt",
-                "select_multi_tool_prompt",
-                "return_json_only_prompt",
-            ]
-            missing = [k for k in required_keys if k not in prompts_dic]
-            if missing:
-                raise KeyError(
-                    f"Planner prompt missing keys {missing}. "
-                    f"Template in use: {AGENT_PROMPTS}"
-                )
-            logger.info(f"[Planner] Loaded planner keys: {sorted(prompts_dic.keys())}")
-        except Exception as e:
-            logger.error(f"[Planner] Prompt loading failed: {e}. Falling back to direct LLM.")
-            return self._fallback_llm_response(instruction)
-
-        # --- 3) Build user/system prompts ---
+        # 3) Combine prompt templates into user prompt (with "return JSON only" section)
         def combine_prompts(select_tool_prompt: str) -> str:
             user_task_line = (
                 prompts_dic.get("user_task_prompt") or f"User task: {instruction}"
@@ -244,18 +218,15 @@ class Planner:
         else:
             user_prompt = combine_prompts(prompts_dic["select_multi_tool_prompt"])
 
-        # --- 4) Ask LLM for plan (text) and extract JSON plan array ---
-        try:
-            text_result = await self.dispatch_llm_async(
-                user_prompt=user_prompt,
-                system_prompt=system_prompt,
-                response_type="text",
-                response_model=TextResponse,
-            )
-        except Exception as e:
-            logger.error(f"[Planner] LLM dispatch failed: {e}. Falling back to direct LLM.")
-            return self._fallback_llm_response(instruction)
+        # 4) Always request TEXT and parse JSON arrays ourselves.
+        text_result = await self.dispatch_llm_async(
+            user_prompt=user_prompt,
+            system_prompt=system_prompt,
+            response_type="text",
+            response_model=TextResponse,
+        )
 
+        # 5) Extract a single JSON array plan from the raw text
         if isinstance(text_result, TextResponse):
             raw_text = (
                 getattr(text_result, "text", "")
@@ -263,6 +234,7 @@ class Planner:
                 or ""
             )
         else:
+            # ultra-defensive: if a provider wrapped differently
             raw_text = str(text_result)
 
         plan_list = self._extract_single_plan_from_text(
@@ -271,17 +243,17 @@ class Planner:
             fallback_prompt=instruction,  # use the user's ask, not the planner prompt
         )
 
-        # --- 5) Validate + normalize via tool registry into a ToolChain ---
+        # 6) Validate + normalize via tool registry into a ToolChain
         tool_chain = self._parse_and_validate_tool_calls(plan_list, instruction)
+
         return tool_chain
 
-    # ------ Internals ------
-
-    async def _classify_intent_async(self, instruction: str) -> str:
+    # todo: deprecate later; to_describe intent should be handled by standard tool chain
+    async def _classify_intent_async(self, instruction: str) -> ToolChain | str:
         try:
             return await classify_describe_only_async(instruction, self)
         except Exception as e:
-            logger.warning(f"Intent classifier failed, defaulting to planning. Error: {e}")
+            logger.warning(f"Intent classifier failed, defaulting to LLM. Error: {e}")
             return "unknown"
 
     async def _call_api_llm_async(
@@ -302,6 +274,7 @@ class Planner:
         """
         assert self.api_model_name, "No API model specified. Please select a model."
         validate_api_model_name(self.api_model_name)
+
         llm_provider = get_llm_provider(self.api_model_name)
         model_id = self.api_model_name
         max_tokens = API_LLM_MAX_TOKEN_DEFAULT
@@ -327,6 +300,7 @@ class Planner:
             )
         else:
             raise ValueError(f"Unsupported LLM provider: {llm_provider}")
+
         return validated_result
 
     def _call_local_llm(
@@ -341,12 +315,14 @@ class Planner:
         """
         assert self.local_model_name is not None
         llm = get_llm_manager(self.local_model_name)
+
         validated_result = llm.generate(
             user_prompt=user_prompt,
             system_prompt=system_prompt,
             expected_res_type=expected_res_type,
             response_model=response_model,
         )
+
         return validated_result  # Return pydantic model
 
     def _extract_single_plan_from_text(
@@ -358,15 +334,22 @@ class Planner:
     ) -> List[Dict[str, Any]]:
         """
         Robustly extract a JSON array plan from model text.
+
         Strategy:
         1) If FINAL_JSON appears: parse JSON arrays that follow it.
            - Prefer the last valid NON-EMPTY array after the LAST FINAL_JSON.
-        2) Otherwise, parse the tail of the output for arrays; pick the last NON-EMPTY.
-        3) If still nothing, fallback to an LLM tool call, *with a tiny heuristic*:
-           - File listing phrasing will map to a FS tool rather than LLM.
+           - If only EMPTY arrays after FINAL_JSON, keep looking (Step 2).
+        2) Otherwise (or if Step 1 yields nothing useful):
+           - Parse the tail of the WHOLE output (e.g., last 1500 chars),
+             take the LAST valid NON-EMPTY array (e.g., 'Assistant: [{"tool":...}]').
+        3) If still nothing, fall back to llm_response_async with the original instruction.
+        4) If prefer_single and the plan has >1 steps, keep only the first.
 
-        Valid array == list of dicts each with "tool" (str) and "params" (dict).
+        Notes:
+        - Valid array == list of dicts each with "tool" (str) and "params" (dict).
+        - NON-EMPTY means len(array) > 0.
         """
+
         def _to_arrays(txt: str) -> List[List[Dict[str, Any]]]:
             arrays_raw = extract_all_json_arrays(txt) or []
             arrays: List[List[Dict[str, Any]]] = []
@@ -386,12 +369,12 @@ class Planner:
                 return non_empty[-1]
             return None
 
-        # PASS 1: After FINAL_JSON sentinel
+        # --- PASS 1: prefer arrays AFTER the LAST FINAL_JSON sentinel ---
         sentinel = FINAL_SENTINEL.strip()  # usually "FINAL_JSON"
         matches = list(re.finditer(rf"(?mi)^[ \t]*{re.escape(sentinel)}[ \t]*\r?$", raw_text))
         if matches:
             last = matches[-1]
-            post = raw_text[last.end():]
+            post = raw_text[last.end():]  # text after the last sentinel line
             post_arrays = _to_arrays(post)
             plan_after_final = _pick_last_non_empty(post_arrays)
             if plan_after_final is not None:
@@ -401,10 +384,10 @@ class Planner:
                     plan = [plan[0]]
                 return plan
             else:
-                logger.warning("[Planner] Only empty/invalid arrays found AFTER FINAL_JSON; trying whole-output tail.")
+                logger.warning("[Planner] Only empty or invalid arrays found AFTER FINAL_JSON; trying whole-output tail.")
 
-        # PASS 2: Tail of whole output
-        tail = raw_text[-2000:] if len(raw_text) > 2000 else raw_text
+        # --- PASS 2: no good array after FINAL_JSON; try the tail of the WHOLE output ---
+        tail = raw_text[-1500:] if len(raw_text) > 1500 else raw_text
         tail_arrays = _to_arrays(tail)
         plan_from_tail = _pick_last_non_empty(tail_arrays)
         if plan_from_tail is not None:
@@ -414,16 +397,12 @@ class Planner:
                 plan = [plan[0]]
             return plan
 
-        # PASS 3: Heuristic fallback to a concrete tool before LLM
-        if re.search(r"\blist\b.*\bfiles?\b", fallback_prompt, re.I):
-            # Prefer direct FS tool for listing requests
-            return [{"tool": "find_dir_structure", "params": {"path": "prompts"}}]
-
+        # --- PASS 3: fallback ---
         logger.warning("[Planner] No valid JSON plan found; falling back to LLM response.")
         return [{"tool": "llm_response_async", "params": {"prompt": fallback_prompt}}]
 
     def _normalize_param_aliases(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Map known alias keys to canonical keys (e.g., directory -> path)."""
+        """Map known alias keys to canonical keys (e.g., root -> path)."""
         if not params:
             return {}
         normalized = dict(params)
@@ -445,7 +424,7 @@ class Planner:
         """
         # Normalize to a list of ToolCall for processing
         steps: List[ToolCall] = []
-
+        # Accept raw dicts/lists for extra robustness
         if isinstance(tool_or_tools, ToolCall):
             steps = [tool_or_tools]
         elif isinstance(tool_or_tools, ToolChain):
@@ -470,7 +449,6 @@ class Planner:
         validated_tools: List[ToolCall] = []
         for i, step in enumerate(steps):
             tool_name = step.tool
-
             # 1) apply param alias normalization BEFORE validation
             params = self._normalize_param_aliases(step.params or {})
 
@@ -482,6 +460,7 @@ class Planner:
             # 3) Filter/normalize params from tool registry (typed)
             valid_keys = self.tool_registry.get_param_keys(tool_name)
             logger.debug(f"[Planner] Param keys for '{tool_name}': {sorted(valid_keys)}")
+
             filtered_params = {k: v for k, v in params.items() if k in valid_keys}
 
             # 4) Compare to see if anything got dropped
@@ -491,9 +470,10 @@ class Planner:
                     f"[Planner] Extra params filtered for tool '{tool_name}': {dropped}"
                 )
 
-            # 5) Light heuristic fill: if a tool expects 'path' and it's missing,
-            # try to infer from instruction (e.g., "prompts folder")
+            # 5) (Optional) light sanity: avoid obvious missing requireds causing crashes
+            # If a tool expects 'path' and it's missing but instruction mentions a token like 'prompts', try to inject it.
             if "path" in valid_keys and "path" not in filtered_params:
+                # naive extraction of a single folder/token word from the instruction
                 m = re.search(r"\b(?:folder|dir(?:ectory)?)\s+([./\w\-]+)", instruction, re.IGNORECASE)
                 if m:
                     filtered_params["path"] = m.group(1)
@@ -515,6 +495,7 @@ class Planner:
         fallback_call = ToolCall(tool="llm_response_async", params={"prompt": instruction})
         return ToolChain(steps=[fallback_call])
 
+    # TODO: need to deprecate later - it should be handled by standard tool chain
     def _build_filtered_project_summary_plan(self) -> ToolChain:
         """
         Builds a multi-step agent plan to summarize the project using the
@@ -524,7 +505,7 @@ class Planner:
         plan: List[Dict[str, Any]] = []
         step_refs: List[str] = []
 
-        # 1. List files
+        # 1. List files using the tool (let tool handle exclusions and extensions)
         plan.append(
             {
                 "tool": "list_project_files",
@@ -536,30 +517,33 @@ class Planner:
             }
         )
 
-        # 2. Read files from the output of list_project_files (limit top 10)
+        # 2. Read files from the output of list_project_files (limit to top 10)
         for i in range(10):
             plan.append(
                 {
                     "tool": "read_files",
-                    "params": {"path": f"<step_0.files[{i}]>"},
+                    "params": {
+                        "path": f"<step_0.files[{i}]>"
+                    },
                 }
             )
             step_refs.append(f"<step_{i+1}>")  # +1 because step_0 is list_project_files
 
-        # 3. Aggregate
+        # 3. Aggregate file contents
         plan.append({"tool": "aggregate_file_content", "params": {"steps": step_refs}})
 
         # 4. Summarize with LLM
         prompts = load_summarizer_prompt()
         system_prompt = prompts.get("system_prompt", "")
-        user_prompt = "\n".join(
-            v for k, v in prompts.items() if k != "system_prompt" and v
-        )
+        user_prompt = "\n".join(v for k, v in prompts.items() if k != "system_prompt" and v)
+
+        # NOTE: llm_response_async input schema currently accepts 'prompt' only.
         plan.append(
             ToolCall(
                 tool="llm_response_async",
                 params={"prompt": f"{system_prompt}\n{user_prompt}".strip()},
             )
         )
+
         return ToolChain(steps=plan)
 

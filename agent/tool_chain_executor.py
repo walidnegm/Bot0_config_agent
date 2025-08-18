@@ -1,5 +1,4 @@
 """agent/tool_chain_executor.py"""
-
 import os
 import logging
 import re
@@ -19,19 +18,16 @@ from tools.tool_models import (
     ToolResults,
 )
 from tools.tool_registry import ToolRegistry
-
+from agent.planner import Planner  # Added import for Planner
 
 logger = logging.getLogger(__name__)
-
 
 class ToolChainExecutor:
     """
     Executor for running a validated multi-step tool plan under FSM control.
-
     This class coordinates tool execution in sequence using a ToolChainFSM
     to enforce progression rules and track per-step states. It resolves
     inter-step references like "<prev_output>" before tool execution.
-
     Core Responsibilities:
         - Initialize an FSM to manage execution order and track states.
         - Iterate through plan steps, executing tools in sequence.
@@ -43,7 +39,6 @@ class ToolChainExecutor:
         - Update FSM state to COMPLETED, FAILED, or SKIPPED based on outcome.
         - Maintain an in-memory context of all tool outputs for later reference.
         - Optionally maintain a conversation-style chat history for LLMs.
-
     Execution Flow:
         1. FSM is initialized with all steps set to PENDING.
         2. Loop until FSM reports all steps are finished.
@@ -52,38 +47,35 @@ class ToolChainExecutor:
         5. Normalize output, update FSM state to COMPLETED or FAILED.
         6. Append execution details to results list.
         7. Repeat until all steps are processed or execution is aborted.
-
     Notes:
         - Error handling is per-step; failures are logged in ToolResult and
           do not raise exceptions to the caller.
         - The class currently assumes linear dependency (step N depends on
           step N-1). Branching and parallel execution are not yet supported.
-
     Args:
         plan (ToolChain): Validated ToolChain with resolved steps.
-
+        planner (Planner, optional): Planner instance to provide model configuration.
     Returns:
         ToolResults: Validated container of ToolResult objects with execution details.
-
     Example:
         >>> executor = ToolChainExecutor(plan)
         >>> results = executor.run_plan_with_fsm(plan)
         >>> for step in results.results:
-        ...     print(step.step_id, step.state, step.status)
+        ... print(step.step_id, step.state, step.status)
     """
-
-    def __init__(self, plan: ToolChain):
+    def __init__(self, plan: ToolChain, planner: Planner = None):
         """
         Args:
             plan (ToolChain): Validated ToolChain plan to execute.
+            planner (Planner, optional): Planner instance to provide model configuration.
         """
         self.registry = ToolRegistry()
         self.plan = plan
+        self.planner = planner  # Store planner for model config
         self.state_map: Dict[str, Dict[str, Any]] = {}
         self._initialize_states()
         self.context: Dict[str, Dict[str, Any]] = {}  # step_n -> output
         self.chat_history: List[Dict[str, Any]] = []  # LLM-style chat log (optional)
-
         # Scope (set by set_scope tool)
         self.project_root: str | None = None
         self.branches: List[str] = []
@@ -91,41 +83,10 @@ class ToolChainExecutor:
     def run_plan_with_fsm(self, plan: ToolChain) -> ToolResults:
         """
         Execute a multi-step tool plan using an FSM controller for progression.
-
-        This method runs each step in the provided plan sequentially, with
-        execution order and readiness controlled by a ToolChainFSM instance.
-        The FSM enforces that a step is only executed when its dependencies
-        (previous steps in a linear plan) are marked as completed.
-
-        For each step:
-            - Marks the step as in_progress in the FSM.
-            - Executes the corresponding tool function from the registry.
-            - Normalizes the tool's output to a standard {status, result, message}
-                format.
-            - Updates FSM state to completed or failed based on execution outcome.
-            - Records execution details in a ToolResult instance.
-
-        Args:
-            plan (List[Dict[str, Any]]):
-                Ordered list of tool call dictionaries, each with "tool" and "params".
-                The params should be pre-resolved (no placeholder parsing done here).
-
-        Returns:
-            ToolResults:
-                A validated container of ToolResult objects, each representing the
-                execution outcome of one step in the plan. Includes the step ID,
-                tool name, parameters, FSM state, execution status, message,
-                and result.
-
-        Raises:
-            Any exception raised by tool execution will be caught and logged as a
-            failed ToolResult; the exception is not re-raised.
         """
-        # Initialize FSM & setup results holder
         logger.info(f"[Executor] Running plan with {len(plan.steps)} steps")
         fsm = ToolChainFSM(plan)
         executed_results: List[ToolResult] = []
-
         while not fsm.is_finished():
             step_id = fsm.get_next_pending_step()
             if not step_id:
@@ -133,11 +94,9 @@ class ToolChainExecutor:
                     "[Executor] No runnable step found, terminating execution loop."
                 )
                 break
-
             step_data = fsm.get_plan_for_step(step_id)
             tool_name = step_data["tool"]
             params = step_data["params"]
-
             # Resolve placeholders BEFORE tool call
             params = self._resolve_params(step_data["params"], self.context)
             logger.info(
@@ -147,18 +106,18 @@ class ToolChainExecutor:
                 step_id=step_id,
                 tool=tool_name,
                 params=params,
-                status=None,  # temp hardcoded holder
+                status=None,
                 state=StepState.IN_PROGRESS,
             )
             fsm.mark_in_progress(step_id)
-
             try:
                 if tool_name == "set_scope":
-                    # Treat set_scope like a normal tool call (it can validate/expand paths)
-                    tool_fn = self.registry.get_function(tool_name)
+                    tool_fn = self.registry.get_function(
+                        tool_name,
+                        local_model_name=self.planner.local_model_name if self.planner else None,
+                        api_model_name=self.planner.api_model_name if self.planner else None
+                    )
                     output = self._normalize_output(tool_fn(**params))
-
-                    # Capture scope (prefer tool output, fall back to params)
                     payload = (
                         output.get("result", {})
                         if isinstance(output.get("result"), dict)
@@ -172,29 +131,20 @@ class ToolChainExecutor:
                     )
                     if self.branches is None:
                         self.branches = []
-
                 else:
-                    # Non_scope tools: inject default root when useful
                     params = self._inject_default_root(tool_name, params)
-
-                    # Fan-out if we have branches and the tool accepts root
                     if self.branches and self._tool_accepts_root(tool_name):
                         output = self._fanout_over_branches(tool_name, params)
                     else:
                         output = self._run_tool_once(tool_name, params)
-
-                # Normalize (common)
                 if not isinstance(output, dict):
                     output = {
                         "status": StepStatus.SUCCESS,
                         "result": output,
                         "message": "",
                     }
-
-                # Coerce enum class for status
                 raw_status = output.get("status", StepStatus.SUCCESS)
                 status = self._coerce_status(raw_status)
-
                 result_entry.status = status
                 result_entry.message = output.get("message", "")
                 result_entry.result = output.get("result", output)
@@ -203,21 +153,15 @@ class ToolChainExecutor:
                     if status == StepStatus.SUCCESS
                     else StepState.FAILED
                 )
-
                 self.context[step_id] = output
-
-                # Log result for debugging
                 logger.debug(
                     f"[Executor] Step {step_id}: tool='{tool_name}', status={result_entry.status}, "
                     f"state={result_entry.state}, message={result_entry.message}"
                 )
-
-                # Mark FSM state
                 if result_entry.state == StepState.COMPLETED:
                     fsm.mark_completed(step_id, output)
                 else:
                     fsm.mark_failed(step_id, result_entry.message or "")
-
             except Exception as e:
                 error_msg = str(e)
                 logger.error(
@@ -227,7 +171,6 @@ class ToolChainExecutor:
                 result_entry.message = error_msg
                 result_entry.state = StepState.FAILED
                 fsm.mark_failed(step_id, error_msg)
-
             executed_results.append(result_entry)
         logger.info(
             f"[Executor] Plan execution complete, {len(executed_results)} results collected."
@@ -243,21 +186,18 @@ class ToolChainExecutor:
                 return StepStatus.SUCCESS
             if s == "error":
                 return StepStatus.ERROR
-        # default
         return StepStatus.SUCCESS
 
     def _extract_path(self, source: Any, path: str) -> Any:
         """
         Traverse a dict/list using dot notation and [index] syntax.
-        Example: "result.files[0]" -> source['result']['files'][0]
         """
         if not path:
             return source
-        parts = re.split(r"\.(?![^\[]*\])", path)  # Split on . not inside []
+        parts = re.split(r"\.(?![^\[]*\])", path)
         val = source
         for part in parts:
             if "[" in part and part.endswith("]"):
-                # e.g., files[3]
                 field, idx = part[:-1].split("[")
                 if field:
                     val = val.get(field) if isinstance(val, dict) else None
@@ -273,52 +213,31 @@ class ToolChainExecutor:
         A parallelizer/aggregator for running the same tool over multiple
         branch paths, collecting each branch’s result, and rolling them up
         into one unified status + message.
-
-        Expected output:
-            Dict form of FanoutResult (pydantic model).
-
         """
-        # Validate/allow tool-specific extras via FanoutParams (root is optional)
         base = FanoutParams.model_validate(params)
-
-        merged = FanoutResult()  # default: status=SUCCESS, message="", per_branch=[]
+        merged = FanoutResult()
         msgs: list[str] = []
-
         for rel in self.branches:
-            # Build branch-specific params (copy + injected root)
-            bparams = base.model_dump()  # dict with extra fields preserved
+            bparams = base.model_dump()
             bparams["root"] = (
                 os.path.join(self.project_root or "", rel) if self.project_root else rel
             )
-
             out = self._run_tool_once(tool_name, bparams)
-
-            # Normalize tool output shape (dict w/ status, message, result)
-
-            raw_status = out.get(
-                "status", StepStatus.SUCCESS
-            )  # Coerce enum class for status
+            raw_status = out.get("status", StepStatus.SUCCESS)
             status = self._coerce_status(raw_status)
             message = out.get("message", "")
             payload = out.get("result", out)
-
             branch_rec = BranchOutput(
                 branch=rel, status=status, message=message, output=payload
             )
-
-            # Give a strongly type name (for pylint)
             payload_model: FanoutPayload = merged.result
-            payload_model.per_branch.append(branch_rec)  # type: ignore[attr-defined]
-
+            payload_model.per_branch.append(branch_rec)
             if branch_rec.status != StepStatus.SUCCESS:
                 merged.status = StepStatus.ERROR
                 if branch_rec.message:
                     msgs.append(f"{rel}: {branch_rec.message}")
-
         if msgs:
             merged.message = "; ".join(msgs)
-
-        # Store typed, but executor/context expects a dict envelope — dump it
         return merged.model_dump()
 
     def _inject_default_root(self, tool_name: str, params: dict) -> Dict[str, Any]:
@@ -364,7 +283,6 @@ class ToolChainExecutor:
             step_key, sub_path = ref_path.split(".", 1)
         else:
             step_key, sub_path = ref_path, None
-
         if step_key == "prev_output":
             steps = [k for k in context.keys() if k.startswith("step_")]
             if not steps:
@@ -392,8 +310,15 @@ class ToolChainExecutor:
         else:
             return params
 
-    def _run_tool_once(self, tool_name: str, params: dict) -> Dict[str, Any]:  # NEW
-        tool_fn = self.registry.get_function(tool_name)
+    def _run_tool_once(self, tool_name: str, params: dict) -> Dict[str, Any]:
+        """
+        Execute a single tool with the provided params, passing model configuration.
+        """
+        tool_fn = self.registry.get_function(
+            tool_name,
+            local_model_name=self.planner.local_model_name if self.planner else None,
+            api_model_name=self.planner.api_model_name if self.planner else None
+        )
         output = self._normalize_output(tool_fn(**params))
         return output
 
