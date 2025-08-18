@@ -37,32 +37,45 @@ class AgentCore:
         )
         logger.info("[AgentCore] ✅ Initialization complete.")
 
+
+    # In agent/core.py
+    # In agent/core.py
+
     def handle_instruction(self, instruction: str) -> ToolResults:
         """
         Process a user instruction: plan tool usage, execute tools, and return results.
-        Args:
-            instruction (str): Natural language instruction from the user.
-        Returns:
-            List[Dict[str, Any]]: List of result dicts for each executed tool step.
         """
         logger.info(f"[AgentCore] 🧠 Received instruction: {instruction}")
         try:
             logger.debug("[AgentCore] 🧭 Calling planner.plan_async()…")
             plan = asyncio.run(self.planner.plan_async(instruction))
+
+            # If the plan is empty or just a fallback, handle it gracefully.
+            if not plan or not plan.steps:
+                logger.warning("[AgentCore] Planner returned an empty plan. No tools to execute.")
+                # You can decide to return an empty result or a specific message
+                return ToolResults(results=[])
+
             executor = ToolChainExecutor(plan=plan, planner=self.planner)
-            logger.debug("[AgentCore] ✅ Plan generated.")
+            logger.debug("[AgentCore] ✅ Plan generated: %s", plan)
             logger.debug("[AgentCore] 🚀 Executing plan…")
+
+            # ##########################################################################
+            # FIXED LINE: Added the required 'plan' argument back to the call.
+            # ##########################################################################
             tool_results = executor.run_plan_with_fsm(plan)
+
             logger.debug("[AgentCore] ✅ Execution complete.")
             return tool_results
+
         except Exception as e:
-            logger.error(f"[AgentCore] Planner/Executor error: {e}", exc_info=True)
+            logger.error(f"[AgentCore] Critical error in handle_instruction: {e}", exc_info=True)
             error_result = ToolResult(
                 step_id="step_0",
                 tool="planner",
                 params={},
                 status=StepStatus.ERROR,
-                message=str(e),
+                message=f"A critical error occurred: {e}",
                 result=None,
                 state=StepState.FAILED,
             )

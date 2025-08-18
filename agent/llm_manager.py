@@ -1,40 +1,7 @@
-"""
-LLMManager: Unified interface to load and run local quantized LLMs (GPTQ, GGUF, AWQ).
-Supported loaders:
-- GPTQ (via gptqmodel)
-- GGUF (via llama.cpp)
-- AWQ (via autoawq)
-Loads model configuration from `models.yaml`. Example structure:
-```yaml
-gptq_llama:
-  model_path: models/llama2-7b-gptq
-  loader: gptq
-  torch_dtype: float16
-  temperature: 0.7
-* Note:
-GGUF (General-purpose quantized format for efficient inference of large language models
-on devices with limited resources, with suffix .gguf):
-A binary format designed for efficient inference of transformer models, particularly large
-language models.
-GPTQ (General-Purpose Quantization for Transformers): A post-training quantization technique for
-large language models, reducing model size and improving inference speed while maintaining accuracy.
-AWQ (Activation-aware Weight Quantization): A quantization method that protects salient weights
-based on activation distribution, preserving model quality while reducing model size and improving
-inference efficiency.
-* Changed make:
-* - add awq
-* - use models.yaml
-* - use the gptq load (use gptqmodel lib, not autoawq)
-* - separated loader / loaders for each loader type (awq, gguf, gptq)
-* - seperated generate / generate for each loader type (awq, gguf, gptq)
-Example Usage:
-    >>> from agent.llm_manager import LLMManager
-        # Load a model named 'gptq_llama' from models.yaml
-        llm = LLMManager(model_name="gptq_llama")
-        # Call the model to generate a tool-calling JSON
-        response = llm.generate("summarize the config files")
-        print(response)
-"""
+# agent/llm_manager.py
+# CORRECTED: Replaced all instances of the incorrect "HUGGINGFACE_TOKEN"
+# with the correct "HUGGING_FACE_HUB_TOKEN" environment variable.
+
 import logging
 import os
 from pathlib import Path
@@ -492,7 +459,7 @@ class LLMManager:
         except Exception as e:
             logger.warning(f"[LLMManager] Could not check or move model param device: {e}")
         tokenizer = AutoTokenizer.from_pretrained(
-            config.model_id_or_path, use_fast=True, token=os.getenv("HUGGINGFACE_TOKEN")
+            config.model_id_or_path, use_fast=True, token=os.getenv("HUGGING_FACE_HUB_TOKEN")
         )
         if tokenizer.pad_token_id is None:
             tokenizer.pad_token_id = tokenizer.eos_token_id
@@ -504,9 +471,12 @@ class LLMManager:
         """
         loader_kwargs = config.model_dump(exclude={"model_id_or_path"})
         loader_kwargs["device"] = "cuda" if torch.cuda.is_available() else "cpu"
+        
+        loader_kwargs.pop("disable_exllama", None)
+        loader_kwargs.pop("group_size", None) # <-- ADD THIS NEW LINE
         self.model = GPTQModel.from_quantized(config.model_id_or_path, **loader_kwargs)
         tokenizer = AutoTokenizer.from_pretrained(
-            config.model_id_or_path, use_fast=True, token=os.getenv("HUGGINGFACE_TOKEN")
+            config.model_id_or_path, use_fast=True, token=os.getenv("HUGGING_FACE_HUB_TOKEN")
         )
         assert isinstance(tokenizer, PreTrainedTokenizerBase)
         if tokenizer.pad_token_id is None:
@@ -530,7 +500,7 @@ class LLMManager:
         device = loader_kwargs.pop("device", None)
         self.model = AutoModelForCausalLM.from_pretrained(
             config.model_id_or_path,
-            token=os.getenv("HUGGINGFACE_TOKEN"),
+            token=os.getenv("HUGGING_FACE_HUB_TOKEN"),
             **loader_kwargs,
         )
         if device:
@@ -538,7 +508,7 @@ class LLMManager:
                 device = "cuda" if torch.cuda.is_available() else "cpu"
             self.model = self.model.to(device)
         tokenizer = AutoTokenizer.from_pretrained(
-            config.model_id_or_path, use_fast=True, token=os.getenv("HUGGINGFACE_TOKEN")
+            config.model_id_or_path, use_fast=True, token=os.getenv("HUGGING_FACE_HUB_TOKEN")
         )
         if tokenizer.pad_token_id is None:
             tokenizer.pad_token_id = tokenizer.eos_token_id

@@ -16,23 +16,12 @@ intent_classifier:
       Analyze the user task.
       If the task can be answered in one LLM call, output "single-step".
       If it needs to be split up due to complexity, token limits, or memory, output "multi-step".
-
       Only respond with "Single-step" or "Multi-step". Do not include any other text or labels.
 
       Examples:
       User task: List all files in the project.
       Single-step
-
-      User task: Summarize the config.yaml file.
-      Single-step
-
       User task: Summarize every Python file in this 200-file repo.
-      Multi-step
-
-      User task: Read all requirements.txt and then summarize the dependencies.
-      Multi-step
-
-      User task: Find secrets in all project files and write a report.
       Multi-step
 
     user_task_prompt: |
@@ -50,104 +39,84 @@ intent_classifier:
       Examples:
       Instruction: Describe this project.
       describe_project
-
-      Instruction: Give an overview of the project.
-      describe_project
-
       Instruction: What is CUDA?
-      unknown
-
-      Instruction: List all files in the repo.
       unknown
 
     user_task_prompt: |
       User task: {{ user_task }}
 
+# ##########################################################################
+# FINAL HYBRID PLANNER
+# This version is robust for simple models (with FINAL_JSON) and
+# clean for smart models. It also fixes all previous bugs.
+# ##########################################################################
 planner:
   system_prompt: |
-    You are a {{ role | default("tool-planning") }} assistant for a command-line automation agent.
-    Your role is to interpret natural language instructions and translate them into actionable tool calls.
-    Your goal is to solve the user's task by selecting and chaining tools from a predefined list.
-    Always respond concisely and strictly follow the output instructions provided.
-    If the instruction is ambiguous or missing important details, you may ask a short clarifying question instead of generating a tool plan.
+    You are a precise tool-planning assistant for a command-line agent. Your SOLE task is to choose the single best tool to solve the user's request.
+    You MUST respond in the exact format requested.
 
   user_task_prompt: |
     User task: {{ user_task }}
 
   select_single_tool_prompt: |
-    Choose the single best tool to solve the user's instruction from the list below.
-
-    Output one tool call as a JSON array (with one object), using only the parameter names shown.
+    Based on the user's task, select the single best tool from the following list.
 
     === Tool List ===
     {% for tool in tools %}
-    - {{ tool.name }}({% for param, meta in tool.parameters.items() %}{{ param }}: {{ meta.type }}{% if not loop.last %}, {% endif %}{% endfor %}): {{ tool.description }}{% if tool.usage_hint %} — {{ tool.usage_hint }}{% endif %}
+    - {{ tool.name }}({% for param, meta in tool.parameters.items() %}{{ param }}: {{ meta.type }}{% if not loop.last %}, {% endif %}{% endfor %}): {{ tool.description }}
     {% endfor %}
 
-    Do not chain multiple tools. Do not include markdown, comments, or extra text.
+    === Rules ===
+    1. Your ONLY output must be a single, valid JSON array.
+    2. Provide the tool name and any required parameters.
+    3. When you are ready, you MUST write a line with exactly: FINAL_JSON
+    4. Immediately after that line, output ONLY the JSON array. Do not include code fences, markdown, or any other text.
 
-    Example:
-    [{"tool": "read_files", "params": { "path": ["README.md"]}}]
-
-  select_multi_tool_prompt: |
-    Analyze the user's instruction and select the tools needed to solve the task, using the list below.
-
-    Output a JSON array of tool calls, in the order they should be executed.
-    Use "<prev_output>" if a tool needs the result of the previous step as input.
-    Use only the parameter names shown in the tool list.
-
-    === Tool List ===
-    {% for tool in tools %}
-    - {{ tool.name }}({% for param, meta in tool.parameters.items() %}{{ param }}: {{ meta.type }}{% if not loop.last %}, {% endif %}{% endfor %}): {{ tool.description }}{% if tool.usage_hint %} — {{ tool.usage_hint }}{% endif %}
-    {% endfor %}
-
-    Only return a valid JSON array. Do not include markdown, comments, or extra text.
-
-    Example:
-    [
-      { "tool": "list_project_files", "params": { "root": "." } },
-      { "tool": "read_files", "params": { "path": "<prev_output>" } },
-      { "tool": "echo_message", "params": { "message": "<prev_output>" } }
-    ]
-
-  return_json_only_prompt: |
-    Your ONLY output must be a single valid JSON array of objects, without any preamble or explanation.
-
-    When you are ready to output, write a line with exactly:
-    FINAL_JSON
-    Immediately after that line, output ONLY the JSON array. No code fences, no markdown, no text before or after the array.
-
-    Format strictly as follows:
+    === Example ===
+    User task: list all python files in the src folder
     FINAL_JSON
     [
       {
-        "tool": "tool_name",
+        "tool": "list_project_files",
         "params": {
-          "arg1": "value1",
-          "arg2": "value2"
+          "root": "src",
+          "include": [".py"]
         }
       }
     ]
 
-    Example final output:
+  # This prompt is duplicated to avoid the Jinja2 error.
+  select_multi_tool_prompt: |
+    Based on the user's task, select the best tools from the following list.
+
+    === Tool List ===
+    {% for tool in tools %}
+    - {{ tool.name }}({% for param, meta in tool.parameters.items() %}{{ param }}: {{ meta.type }}{% if not loop.last %}, {% endif %}{% endfor %}): {{ tool.description }}
+    {% endfor %}
+
+    === Rules ===
+    1. Your ONLY output must be a single, valid JSON array.
+    2. Provide the tool name and any required parameters.
+    3. When you are ready, you MUST write a line with exactly: FINAL_JSON
+    4. Immediately after that line, output ONLY the JSON array. Do not include code fences, markdown, or any other text.
+
+    === Example ===
+    User task: find all config files and summarize them
     FINAL_JSON
     [
-     { "tool": "list_project_files", "params": { "root": "prompts" } }
+      {
+        "tool": "list_project_files",
+        "params": { "include": [".yaml", ".toml", ".json"] }
+      },
+      {
+        "tool": "summarize_files",
+        "params": { "files": "<step_0>" }
+      }
     ]
-    
-    Do NOT include:
-    - Markdown formatting or code blocks (no ```)
-    - Inline comments or explanations
-    - JavaScript-style syntax (no +, ?:, etc.)
-    - Placeholders like "path/to/file"
 
-    Rules:
-    - Do NOT include markdown/code fences or extra text.
-    - Return an empty array ONLY if truly no tool applies.
-    - If the task mentions files, folders, paths, projects, or directories, THERE IS an applicable tool.
-    ✅ If no tool is applicable, return:
-    FINAL_JSON
-    []
+  return_json_only_prompt: |
+    Now, fulfill the request for the user task below following all rules.
+    User task: {{ user_task }}
 
 summarizer: # holder for now
   system_prompt: |
@@ -158,4 +127,3 @@ summarizer: # holder for now
     <prev_output>
     Highlight purpose, key components, and usage.
     {{ log_text }}
-

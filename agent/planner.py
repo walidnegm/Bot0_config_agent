@@ -7,7 +7,7 @@ single vs multi-step planning, and plan validation.
 - All public APIs always return ToolChain (never dict, list, or ToolCall).
 """
 from __future__ import annotations
-
+import json 
 from configs.paths import AGENT_PROMPTS
 import re
 import logging
@@ -349,6 +349,12 @@ class Planner:
         )
         return validated_result  # Return pydantic model
 
+
+# In agent/planner.py
+
+
+    # In agent/planner.py
+
     def _extract_single_plan_from_text(
         self,
         raw_text: str,
@@ -359,68 +365,41 @@ class Planner:
         """
         Robustly extract a JSON array plan from model text.
         Strategy:
-        1) If FINAL_JSON appears: parse JSON arrays that follow it.
-           - Prefer the last valid NON-EMPTY array after the LAST FINAL_JSON.
-        2) Otherwise, parse the tail of the output for arrays; pick the last NON-EMPTY.
-        3) If still nothing, fallback to an LLM tool call, *with a tiny heuristic*:
-           - File listing phrasing will map to a FS tool rather than LLM.
-
-        Valid array == list of dicts each with "tool" (str) and "params" (dict).
+        1) Find the LAST "FINAL_JSON" line marker.
+        2) Parse the first valid JSON array that appears AFTER it.
+        3) If no sentinel is found, fall back to searching the tail end of the output.
+        4) If all else fails, use the llm_response_async tool.
         """
-        def _to_arrays(txt: str) -> List[List[Dict[str, Any]]]:
-            arrays_raw = extract_all_json_arrays(txt) or []
-            arrays: List[List[Dict[str, Any]]] = []
-            for js in arrays_raw:
-                arr = safe_parse_json_array(js)
-                if (
-                    isinstance(arr, list)
-                    and all(isinstance(x, dict) and "tool" in x and "params" in x for x in arr)
-                    and all(isinstance(x.get("tool"), str) and isinstance(x.get("params"), dict) for x in arr)
-                ):
-                    arrays.append(arr)
-            return arrays
-
-        def _pick_last_non_empty(arrays: List[List[Dict[str, Any]]]) -> Optional[List[Dict[str, Any]]]:
-            non_empty = [a for a in arrays if len(a) > 0]
-            if non_empty:
-                return non_empty[-1]
-            return None
-
-        # PASS 1: After FINAL_JSON sentinel
-        sentinel = FINAL_SENTINEL.strip()  # usually "FINAL_JSON"
-        matches = list(re.finditer(rf"(?mi)^[ \t]*{re.escape(sentinel)}[ \t]*\r?$", raw_text))
+        # Find the position of the last "FINAL_JSON" marker.
+        last_sentinel_pos = -1
+        # CORRECTED REGEX: (?im) flags are now at the start of the pattern.
+        matches = list(re.finditer(r"(?im)^\s*FINAL_JSON\s*$", raw_text))
         if matches:
-            last = matches[-1]
-            post = raw_text[last.end():]
-            post_arrays = _to_arrays(post)
-            plan_after_final = _pick_last_non_empty(post_arrays)
-            if plan_after_final is not None:
-                plan = plan_after_final
-                if prefer_single and len(plan) > 1:
-                    logger.info("[Planner] Reducing multi-step plan to single step based on classifier.")
-                    plan = [plan[0]]
-                return plan
-            else:
-                logger.warning("[Planner] Only empty/invalid arrays found AFTER FINAL_JSON; trying whole-output tail.")
+            last_sentinel_pos = matches[-1].end()
 
-        # PASS 2: Tail of whole output
-        tail = raw_text[-2000:] if len(raw_text) > 2000 else raw_text
-        tail_arrays = _to_arrays(tail)
-        plan_from_tail = _pick_last_non_empty(tail_arrays)
-        if plan_from_tail is not None:
-            plan = plan_from_tail
-            if prefer_single and len(plan) > 1:
-                logger.info("[Planner] Reducing multi-step plan to single step based on classifier (tail).")
-                plan = [plan[0]]
-            return plan
+        # Determine the text to search for a JSON array
+        search_text = raw_text[last_sentinel_pos:] if last_sentinel_pos != -1 else raw_text
 
-        # PASS 3: Heuristic fallback to a concrete tool before LLM
-        if re.search(r"\blist\b.*\bfiles?\b", fallback_prompt, re.I):
-            # Prefer direct FS tool for listing requests
-            return [{"tool": "find_dir_structure", "params": {"path": "prompts"}}]
+        # Find all valid JSON arrays in the search text
+        json_arrays = extract_all_json_arrays(search_text)
 
-        logger.warning("[Planner] No valid JSON plan found; falling back to LLM response.")
+        if json_arrays:
+            # We found at least one JSON array, use the first one after the last sentinel.
+            first_valid_array_str = json_arrays[0]
+            try:
+                plan = json.loads(first_valid_array_str)
+                if isinstance(plan, list) and all(isinstance(item, dict) for item in plan):
+                    logger.info(f"[Planner] ✅ Extracted plan via FINAL_JSON sentinel: {plan}")
+                    if prefer_single and len(plan) > 1:
+                        return [plan[0]]
+                    return plan
+            except json.JSONDecodeError:
+                logger.warning("[Planner] Found text that looked like an array but failed to parse.")
+
+        logger.warning("[Planner] No valid JSON plan found after sentinel; falling back to LLM response.")
         return [{"tool": "llm_response_async", "params": {"prompt": fallback_prompt}}]
+
+
 
     def _normalize_param_aliases(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Map known alias keys to canonical keys (e.g., directory -> path)."""

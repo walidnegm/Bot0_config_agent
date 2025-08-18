@@ -112,12 +112,23 @@ class ToolChainExecutor:
             fsm.mark_in_progress(step_id)
             try:
                 if tool_name == "set_scope":
-                    tool_fn = self.registry.get_function(
-                        tool_name,
-                        local_model_name=self.planner.local_model_name if self.planner else None,
-                        api_model_name=self.planner.api_model_name if self.planner else None
-                    )
+                    
+
+                    # In agent/tool_chain_executor.py
+
+                    # This logic is likely in a method like _run_tool_once or _execute_step
+                    if tool_name == "llm_response_async":
+                    # If the tool is the LLM tool, pass the planner's model arguments to it.
+                        tool_fn = self.tool_registry.get_function(tool_name, **self.planner.model_kwargs)
+                    else:
+                        # For all other tools, get the function without the extra model arguments.
+                        tool_fn = self.tool_registry.get_function(tool_name)
+
+                    # Execute the tool with its planned parameters.
                     output = self._normalize_output(tool_fn(**params))
+
+
+
                     payload = (
                         output.get("result", {})
                         if isinstance(output.get("result"), dict)

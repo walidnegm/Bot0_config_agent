@@ -1,4 +1,6 @@
 # * Local LLM Models Only!
+# CORRECTED: All model_id_or_path entries now point to the Hugging Face repository ID
+# to ensure unambiguous downloading on the first run.
 
 qwen3_1_7b_instruct_gptq:
   loader: gptq
@@ -6,12 +8,12 @@ qwen3_1_7b_instruct_gptq:
   quantization: GPTQ
   config:
     model_path: models/qwen3_1_7b_instruct_gptq
-    model_id_or_path: models/qwen3_1_7b_instruct_gptq
+    model_id_or_path: kaitchup/Qwen3-1.7B-autoround-4bit-gptq
     device: cuda
     torch_dtype: float16
   generation_config:
     max_new_tokens: 512
-    temperature: 0.4        # Qwen models 0–2.0
+    temperature: 0.4
     top_p: 0.9
 
 qwen3_4b_awq:
@@ -20,7 +22,7 @@ qwen3_4b_awq:
   quantization: AWQ
   config:
     model_path: models/qwen3_4b_awq
-    model_id_or_path: models/qwen3_4b_awq
+    model_id_or_path: Qwen/Qwen3-4B-AWQ
     device: cuda
     torch_dtype: float16
   generation_config:
@@ -34,7 +36,7 @@ gemma_2_2b_gptq:
   quantization: GPTQ
   config:
     model_path: models/gemma_2_2b_gptq
-    model_id_or_path: models/gemma_2_2b_gptq
+    model_id_or_path: shuyuej/gemma-2-2b-it-GPTQ
     device: cuda
     torch_dtype: float16
   generation_config:
@@ -48,12 +50,12 @@ deepseek_coder_1_3b_gptq:
   quantization: GPTQ
   config:
     model_path: models/deepseek_coder_1_3b_gptq
-    model_id_or_path: models/deepseek_coder_1_3b_gptq
+    model_id_or_path: TheBloke/deepseek-coder-1.3b-instruct-GPTQ
     device: cuda
     torch_dtype: float16
   generation_config:
     max_new_tokens: 512
-    temperature: 0.4        # DeepSeek models 0–2.0
+    temperature: 0.4
     top_p: 0.95
 
 lfm2_1_2b:
@@ -73,8 +75,6 @@ lfm2_1_2b:
     max_new_tokens: 512
     temperature: 0.0
     top_p: 1.0
-    # Optional hard stops if your LLMManager supports them:
-    # stop: ["\nUser:", "\nSystem:", "\nAssistant:"]
 
 phi_3_5_mini_awq:
   loader: awq
@@ -82,7 +82,7 @@ phi_3_5_mini_awq:
   quantization: AWQ
   config:
     model_path: models/phi_3_5_mini_awq
-    model_id_or_path: models/phi_3_5_mini_awq
+    model_id_or_path: thesven/Phi-3.5-mini-instruct-awq
     device: cuda
     torch_dtype: float16
   generation_config:
@@ -96,14 +96,13 @@ llama_2_7b_chat_gptq:
   quantization: GPTQ
   config:
     model_path: models/llama_2_7b_chat_gptq
-    model_id_or_path: models/llama_2_7b_chat_gptq
+    model_id_or_path: TheBloke/Llama-2-7B-Chat-GPTQ
     device: cuda
     torch_dtype: float16
   generation_config:
     max_new_tokens: 512
     temperature: 0.2
     top_p: 0.9
-    # stop: ["</s>"]
 
 llama_3_2_3b_gptq:
   loader: gptq
@@ -111,14 +110,13 @@ llama_3_2_3b_gptq:
   quantization: GPTQ
   config:
     model_path: models/llama_3_2_3b_gptq
-    model_id_or_path: models/llama_3_2_3b_gptq
+    model_id_or_path: shuyuej/Llama-3.2-3B-Instruct-GPTQ
     device: cuda
     torch_dtype: float16
   generation_config:
     max_new_tokens: 512
     temperature: 0.2
     top_p: 0.95
-    # stop: ["</s>"]
 
 llama3_8b:
   loader: transformers
@@ -134,13 +132,14 @@ llama3_8b:
     max_new_tokens: 512
     temperature: 0.2
     top_p: 0.9
-    # stop: ["</s>"]
 
 tinyllama_1_1b_chat_gguf:
   loader: llama_cpp
   model_id: TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF
   quantization: GGUF
   config:
+    # For GGUF, the path points to a specific file, which is often downloaded manually.
+    # This entry assumes the file exists at this local path.
     model_path: models/tinyllama_1_1b_chat_gguf/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
     model_id_or_path: models/tinyllama_1_1b_chat_gguf/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
     n_ctx: 4096
@@ -148,11 +147,6 @@ tinyllama_1_1b_chat_gguf:
     chat_format: zephyr
     verbose: true
   generation_config:
-    max_tokens: 512         # llama.cpp uses max_tokens
+    max_tokens: 512
     temperature: 0.3
     top_p: 0.95
-
-# local LLMs saved in project should be under /models/"model_name" dir, such as:
-# - models/tinyllama_1_1b_chat_gguf/
-# - models/qwen3_4b_awq/
-
