@@ -49,11 +49,11 @@ Example Usage:
 import logging
 from pathlib import Path
 from typing import Optional, Literal, Dict, Any, Union, Type, Tuple
-from pydantic import BaseModel, ValidationError
 import re
 import json
-import torch
 import gc
+from pydantic import BaseModel, ValidationError
+import torch
 from transformers import AutoTokenizer, PreTrainedTokenizerBase, AutoModelForCausalLM
 from llama_cpp import Llama
 from gptqmodel import GPTQModel  # Ensure GPTQModel is installed or available
@@ -65,7 +65,7 @@ from loaders.model_configs_models import (
     GPTQLoaderConfig,
     LoaderConfigEntry,
 )
-from loaders.load_model_config import load_model_config
+from loaders.load_model_configs import load_model_configs
 from agent_models.agent_models import (
     JSONResponse,
     CodeResponse,
@@ -79,6 +79,7 @@ from agent_models.llm_response_validators import (
 )
 from utils.find_root_dir import find_project_root
 from utils.gpu_monitor import log_gpu_usage, log_peak_vram_usage
+from utils.coerce_max_memory import coerce_max_memory
 
 
 logger = logging.getLogger(__name__)
@@ -99,11 +100,26 @@ _LLM_MANAGER_CACHE = {}
 #! Single instance of model
 def get_llm_manager(model_name):
     """
-    Shared singleton getter (global cache to avoid reloading model into VRAM)
+    Shared singleton getter (global cache to avoid reloading model into VRAM).
+
+    #! Without this step, VRAM will overload!
     """
     if model_name not in _LLM_MANAGER_CACHE:
         _LLM_MANAGER_CACHE[model_name] = LLMManager(model_name)
     return _LLM_MANAGER_CACHE[model_name]
+
+
+def _map_dtype(s: str | None):
+    import torch
+
+    if not s:
+        return None
+    s = s.lower()
+    return {
+        "float16": torch.float16,
+        "bfloat16": torch.bfloat16,
+        "float32": torch.float32,
+    }.get(s)
 
 
 class LLMManager:
@@ -124,7 +140,7 @@ class LLMManager:
         self.model: Optional[Any] = None
         self.model_name: str = model_name  # For logging
 
-        entry = load_model_config(model_name)
+        entry = load_model_configs(model_name)
         self.loader = entry.loader
         config: (
             AWQLoaderConfig
@@ -749,3 +765,30 @@ class LLMManager:
             return "[]"
 
         return decoded
+
+    def _merge_load_quant_config_kwargs(
+        self, load_cfg: dict, quant_cfg: dict | None
+    ) -> dict:
+        # Only include kwargs that AutoAWQForCausalLM.from_quantized really understands.
+        allowed = {
+            "device_map",
+            "max_memory",
+            "offload_folder",
+            "torch_dtype",
+            "trust_remote_code",
+            "fuse_layers",
+        }
+        merged = {}
+        # load_config first
+        for k, v in (load_cfg or {}).items():
+            if k in ("model_id_or_path", "device"):  # handled separately
+                continue
+            if k == "max_memory":
+                v = coerce_max_memory(v)
+            if k in allowed:
+                merged[k] = v
+        # then quant_config (only real AWQ knobs; e.g., fuse_layers)
+        for k, v in (quant_cfg or {}).items():
+            if k in allowed:
+                merged[k] = v
+        return merged

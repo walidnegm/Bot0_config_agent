@@ -1,4 +1,4 @@
-from loaders.load_model_config import load_model_config
+from loaders.load_model_configs import load_model_configs
 import json
 import logging
 from agent.llm_manager import LLMManager

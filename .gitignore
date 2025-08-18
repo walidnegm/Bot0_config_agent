@@ -155,6 +155,7 @@ cython_debug/
 # Custom additions for your project
 model/  # Ignore if it contains large LLM weights; use Git LFS if needed
 models/  # Same as above
+configs/overrides/*
 sandbox/ # Ignore modules still experimenting
 myenv/  # If your virtualenv is inside the project (though it's better outside)
 documents/ # Private documents
