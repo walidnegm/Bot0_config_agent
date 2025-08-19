@@ -77,6 +77,16 @@ class ToolChainFSM:
             for s in self.state_map
         )
 
+    # In agent/tool_chain_fsm.py, inside the ToolChainFSM class
+
+    def get_step_output(self, step_id: str) -> Optional[Any]:
+        """
+        Safely retrieve the stored result for a completed step.
+        """
+        if step_id in self.state_map and self.state_map[step_id]["state"] == StepState.COMPLETED:
+            return self.state_map[step_id].get("result")
+        return None
+
     def get_plan_for_step(self, step_id: str) -> Dict[str, Any]:
         """
         Return the tool call dict for a given step ID.

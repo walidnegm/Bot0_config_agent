@@ -206,16 +206,22 @@ class MakeVirtualenvOutput(ToolOutput):
 #   NOTE: Registry expects an inner "<Tool>NameResult". We provide
 #         ReadFilesResult so 'ReadFilesResult' can be resolved.
 # -----------------------------------------------------------------------------
-class ReadFilesInput(BaseModel):
-    path: Union[str, List[str]]
+# In tools/tool_models.py
 
+class ReadFilesInput(BaseModel):
+    # The path should always be a list of strings
+    path: List[str]
+
+    # This validator now correctly handles both single strings and existing lists
     @field_validator("path", mode="before")
     @classmethod
-    def wrap_single_path(cls, v):
+    def ensure_path_is_list(cls, v):
         if isinstance(v, str):
             return [v]
-        return v
-
+        if isinstance(v, list):
+            return v
+        # Add handling for other potential types if necessary, or raise an error
+        raise TypeError("path must be a string or a list of strings")
 
 class ReadFileItem(BaseModel):
     file: str
