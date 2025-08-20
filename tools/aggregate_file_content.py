@@ -1,25 +1,26 @@
-# tools/aggregate_file_content.py
-# --------------------------------
-# Combine multiple file contents from prior steps for summarization
+"""
+tools/aggregate_file_content.py
+Combines multiple file contents from prior steps for summarization.
+"""
 
-from agent_models.step_status import StepStatus
+from typing import List
+import logging
+from tools.tool_models import AggregateFileContentOutput, StepStatus
 
+logger = logging.getLogger(__name__)
 
-def aggregate_file_content(**kwargs):
-    steps = kwargs.get("steps", [])  # Expected to be resolved step values
-
-    if not steps or not isinstance(steps, list):
-        return {
-            "status": StepStatus.ERROR,
-            "message": "Missing or invalid 'steps' parameter. Must be a list of file contents.",
-        }
-
-    try:
-        joined = "\n\n".join(str(s) for s in steps)
-        return {
-            "status": StepStatus.SUCCESS,
-            "message": "Aggregated file contents.",
-            "result": joined,
-        }
-    except Exception as e:
-        return {"status": StepStatus.ERROR, "message": f"Failed to aggregate: {e}"}
+def aggregate_file_content(steps: List[Any]) -> AggregateFileContentOutput:
+    """
+    Aggregate contents from previous step results.
+    Assumes each step is a dict (e.g., from read_files: {path: content}); concatenates the contents.
+    Handles None or non-dict as empty string.
+    """
+    aggregated = ''
+    for step in steps or []:
+        if step is None:
+            continue
+        if isinstance(step, dict):
+            aggregated += '\n\n'.join(step.values()) + '\n'
+        else:
+            aggregated += str(step) + '\n'
+    return AggregateFileContentOutput(status=StepStatus.SUCCESS, message="Aggregated file contents.", result=aggregated.strip())

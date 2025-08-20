@@ -1,285 +1,78 @@
 """
-cli.py
-==========================
-🧠 Natural Language CLI for Config Manager
-
-Interactive and batch command-line interface for the agent-based Config Manager.
-Supports both local and API (cloud) LLMs. Handles interactive sessions or one-off commands,
-and provides clear, shareable logs and user-friendly output.
-
-Usage examples:
-----------------
-# Run interactively with a local model:
-python agent/cli.py --local-model llama_2_7b_chat
-
-# Run interactively with a cloud API model (e.g., OpenAI, Anthropic, Gemini):
-python agent/cli.py --api-model gpt-4o
-
-# Run one-off command with a local model:
-python agent/cli.py --local-model llama_2_7b_chat --once "where are my model files"
-
-# Run one-off command with a cloud API model:
-Simple single step:
-python agent/cli.py --api-model claude-3-haiku-20240307 --once "list all files in my current directory"
-python agent/cli.py --api-model gpt-4.1-nano --once "list all files in my current directory"
-python agent/cli.py --local-model deepseek_coder_1_3b_gptq --once "list all files in my current directory and read the first file."
-
-More complex:
-python agent/cli.py --api-model claude-3-haiku-20240307 --once "summarize project config"
-python -m agent.cli --api-model gpt-4.1-mini --once "where are my config files?"
-python -m agent.cli --api-model claude-sonnet-4-20250514 --once "First find all config files in the project (excluding venv, models, etc.), then summarize each."
-
-# Show all available models and their descriptions:
-python agent/cli.py --show-models-help
-
-python -m agent.cli --api-model gpt-4.1-mini --once "List all files in the ./agent directory excluding __pycache__, .git, and venv."
-python -m agent.cli --api-model gpt-4.1-mini --once "List all files in the ./agent directory excluding __pycache__, .git, and venv, then summarize their contents."
-
-Notes:
-------
-- You must specify exactly one of --local-model or --api-model.
-- Use --show-models-help to see all available model options.
+agent/cli.py
+Command-line interface for the agent.
 """
-
 import sys
 import os
-import logging
-import pprint
-import json
 import argparse
-import datetime
-from pathlib import Path
-from typing import List, Any, Dict
-from tabulate import tabulate
-from agent.core import AgentCore
-from agent_models.step_status import StepStatus
-from utils.get_model_info_utils import (
-    get_local_model_names,
-    get_api_model_names,
-    get_local_models_and_help,
-    get_api_models_and_help,
-    print_all_model_choices,
-)
-from configs.paths import MODEL_CONFIGS_YAML_FILE
-import logging_config  # * Need this configure logging file (Only need to import once at entry point)
+import logging
+import json
 
-# Set up logging
+# Determine the project root directory (the parent of the 'agent' directory)
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+from agent.core import AgentCore
+from tools.tool_models import ToolResult
+from utils.get_llm_api_keys import get_openai_api_key, get_anthropic_api_key, get_google_api_key
+from configs.api_models import get_llm_provider
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-USE_COLOR = True  # Set to False if piping output or in unsupported terminals
-
-
-def format_file_metadata(file_path: Path | str) -> List[str]:
-    """
-    Return metadata for a file, including path, size, and creation timestamp.
-
-    Args:
-        file_path (str or Path): Path to the file.
-
-    Returns:
-        List[str]: [file path, size (KB/MB), creation time].
-                   On error, returns size and timestamp as '?'.
-    """
-    file_path = str(file_path)
-    try:
-        size = os.path.getsize(file_path)
-        created_ts = os.path.getctime(file_path)
-        size_str = (
-            f"{size / 1024:.1f} KB" if size < 1e6 else f"{size / (1024 * 1024):.1f} MB"
-        )
-        created_str = datetime.datetime.fromtimestamp(created_ts).strftime(
-            "%Y-%m-%d %H:%M"
-        )
-        return [file_path, size_str, created_str]
-    except Exception:
-        logger.error(f"Error getting metadata for {file_path}", exc_info=True)
-        return [file_path, "?", "?"]
-
-
-def bold(text: str) -> str:
-    """Return bolded text for supported terminals."""
-    return f"\033[1m{text}\033[0m" if USE_COLOR else text
-
-
-def display_result(result: Dict[str, Any]) -> None:
-    """
-    Pretty-print and log a single tool step result for user and for sharing.
-    Prints formatted details to the CLI, logs both pretty and JSON output.
-
-    Args:
-        result (dict): Result dict for a single step (from ToolResult.model_dump()).
-    """
-    tool = result.get("tool", "Unknown Tool")
-    status = result.get("status", StepStatus.SUCCESS)
-
-    # Skip noisy/low-level tools unless error
-    if (
-        tool in {"read_file", "aggregate_file_content", "llm_response_async"}
-        and status == StepStatus.SUCCESS
-    ):
-        return
-
-    message = result.get("message", "")
-    print(f"\n🔧 Tool: {tool}")
-    print(f"🗨️  Message: {message}")
-
-    logger.info(f"\n🔧 Tool: {tool}")
-    logger.info(f"🗨️  Message: {message}")
-
-    result_payload = result.get("result")
-    pp = pprint.PrettyPrinter(indent=2, width=100, compact=False)
-    if isinstance(result_payload, dict):
-        for field in ("matches", "files", "results"):
-            items = result_payload.get(field)
-            if isinstance(items, list) and items:
-                rows = [format_file_metadata(path) for path in items]
-                header = f"\n📁 {field.capitalize()}:"
-                table = tabulate(
-                    rows, headers=["Path", "Size", "Created"], tablefmt="fancy_grid"
-                )
-                print(f"\n📁 {bold(field.capitalize())}:")
-                print(table)
-
-                logger.info(header)
-                logger.info("\n" + table)
-
-        for k, v in result_payload.items():
-            if k in {"matches", "files", "results"}:
-                continue
-            field_str = f"📌 {k}:"
-            pretty = pp.pformat(v)
-            print(pretty)
-            print(field_str)
-            logger.info(field_str)
-            logger.info(pretty)
-    elif isinstance(result_payload, list):
-        print(f"\n📌 Result (list):")
-        pp.pprint(result_payload)
-        logger.info("📌 Result payload:")
-        logger.info(pp.pformat(result_payload))
+def display_result(result_data: dict):
+    """Prints a formatted tool result to the console."""
+    print(f"\n🔧 Tool: {result_data.get('tool')}")
+    print(f"🗨️  Message: {result_data.get('message')}")
+    print("📌 Result:")
+    # Pretty print the result if it's a dict or list
+    result_payload = result_data.get('result')
+    if isinstance(result_payload, (dict, list)):
+        print(json.dumps(result_payload, indent=2, ensure_ascii=False))
     else:
-        print(f"\n📌 Result:")
         print(result_payload)
-        logger.info("📌 Result payload:")
-        logger.info(pp.pformat(result_payload))
-
-
-def run_agent_loop(agent: AgentCore) -> None:
-    """
-    Launches the interactive CLI session for the agent.
-    Handles user input, calls the agent, and displays/logs results step by step.
-
-    Args:
-        agent (AgentCore): The main agent instance to handle instructions.
-    """
-    print("🧠 Config Manager CLI (type 'quit' or Ctrl+C to exit)")
-    while True:
-        try:
-            instruction = input("\n📝 Instruction: ").strip()
-            if instruction.lower() in {"quit", "exit"}:
-                print("👋 Goodbye!")
-                break
-
-            logger.info("=" * 50)
-            logger.info(f"User Instruction: {instruction}")
-
-            tool_results = agent.handle_instruction(instruction)
-
-            print("\n--- Results ---")
-            logger.info("\n--- Results ---")
-
-            for i, result in enumerate(tool_results.results):
-                display_result(result.model_dump())
-                logger.info(
-                    "RESULT_JSON for step %d:\n%s",
-                    i,
-                    json.dumps(result.model_dump(), indent=2, ensure_ascii=False),
-                )
-
-            logger.info("=" * 50)
-
-        except KeyboardInterrupt:
-            print("\n👋 Exiting.")
-            break
-        except Exception as e:
-            logger.error(f"Error in agent loop: {e}", exc_info=True)
-            print(f"\n❌ Error: {e}")
-
 
 def main():
-    """
-    CLI entry point for the agent-powered Config Manager.
-    Handles command-line arguments, model selection, and runs interactive or one-off mode.
-    """
-    try:
-        local_model_names = get_local_model_names(MODEL_CONFIGS_YAML_FILE)
-        api_model_names = get_api_model_names()
-        local_models = get_local_models_and_help(MODEL_CONFIGS_YAML_FILE)
-        api_models = get_api_models_and_help()
-    except Exception as e:
-        logger.error("Failed to load model information", exc_info=True)
-        sys.exit(1)
-
-    parser = argparse.ArgumentParser(
-        description="Agent-powered CLI for natural language instructions"
-    )
-    parser.add_argument("--once", type=str, help="Run once with a single instruction")
-    parser.add_argument(
-        "--local-model",
-        type=str,
-        choices=local_model_names,
-        help="Select a local LLM model",
-    )
-    parser.add_argument(
-        "--api-model",
-        type=str,
-        choices=api_model_names,
-        help="Select a cloud API LLM model",
-    )
-    parser.add_argument(
-        "--show-models-help",
-        action="store_true",
-        help="Show all models with help and exit",
-    )
-
+    """Main function to run the CLI."""
+    parser = argparse.ArgumentParser(description="A CLI for interacting with an AI agent.")
+    parser.add_argument("--local-model", help="Specify the local model to use.")
+    parser.add_argument("--api-model", help="Specify the API model to use.")
+    parser.add_argument("--once", help="Run a single instruction and exit.")
     args = parser.parse_args()
 
-    # Print help and exit if requested
-    if args.show_models_help:
-        print_all_model_choices(local_models, api_models)
-        sys.exit(0)
+    # Validate that exactly one model is chosen
+    if (args.local_model and args.api_model) or (not args.local_model and not args.api_model):
+        parser.error("Please specify exactly one of --local-model or --api-model.")
 
-    # Safeguard: ensure exactly one model
-    chosen_models = [x for x in [args.local_model, args.api_model] if x]
-    if len(chosen_models) > 1:
-        parser.error(
-            "Please specify only one model (local or cloud), not multiple at once."
-        )
-    if not chosen_models:
-        parser.error(
-            "Please specify one model: --local-model (local) or --api-model (cloud)."
-        )
+    # Validate API key if using API model
+    if args.api_model:
+        try:
+            provider = get_llm_provider(args.api_model)
+            if provider == "openai":
+                get_openai_api_key()
+            elif provider == "anthropic":
+                get_anthropic_api_key()
+            elif provider == "gemini":
+                get_google_api_key()
+        except ValueError as e:
+            logger.error(f"Failed to validate API key: {e}")
+            sys.exit(1)
 
-    # Instantiate agent
     try:
-        agent = AgentCore(
-            local_model_name=args.local_model, api_model_name=args.api_model
-        )
+        agent = AgentCore(local_model_name=args.local_model, api_model_name=args.api_model)
     except Exception as e:
         logger.error(f"Failed to initialize AgentCore: {e}", exc_info=True)
         sys.exit(1)
 
-    # One-off or interactive mode
     if args.once:
         instruction = args.once.strip()
         try:
             logger.info("=" * 50)
             logger.info(f"User Instruction: {instruction}")
-
             tool_results = agent.handle_instruction(instruction)
             print("\n--- Results ---")
-            logger.info("\n--- Results ---")
-
             for i, result in enumerate(tool_results.results):
                 display_result(result.model_dump())
                 logger.info(
@@ -287,15 +80,13 @@ def main():
                     i,
                     json.dumps(result.model_dump(), indent=2, ensure_ascii=False),
                 )
-
             logger.info("=" * 50)
-
         except Exception as e:
             logger.error(f"Error during instruction execution: {e}", exc_info=True)
             print(f"❌ Error: {e}")
     else:
-        run_agent_loop(agent)
-
+        # Interactive mode can be implemented here
+        print("Interactive mode is not yet implemented. Use the --once flag.")
 
 if __name__ == "__main__":
     main()

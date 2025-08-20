@@ -73,72 +73,59 @@
       "properties": {
         "path": {
           "type": "string",
-          "description": "Root directory to scan (absolute or relative)."
-        },
-        "ignore_dirs": {
-          "type": "array",
-          "description": "Directory names to skip anywhere in the tree.",
-          "items": {
-            "type": "string"
-          }
+          "description": "Path to scan for directory structure."
         }
       },
-      "required": [
-        "path"
-      ],
-      "additionalProperties": false
+      "required": []
     },
     "input_model": "FindDirStructureInput",
-    "output_model": "FindDirStructureResult"
+    "output_model": "FindDirStructureOutput"
   },
   "find_file_by_keyword": {
-    "description": "Searches for files containing the keyword in their name under the given directory.",
+    "description": "Finds files by keyword in their name or content.",
     "import_path": "tools.find_file_by_keyword.find_file_by_keyword",
     "parameters": {
       "type": "object",
       "properties": {
-        "keywords": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "List of partial names to match (e.g., ['llama', 'model'])."
+        "keyword": {
+          "type": "string",
+          "description": "Keyword to search for."
         },
         "root": {
           "type": "string",
-          "description": "Root directory to search from. Defaults to current working directory."
+          "description": "Directory to start search (default is current directory)."
         }
       },
       "required": [
-        "keywords"
+        "keyword"
       ]
     },
     "input_model": "FindFileByKeywordInput",
     "output_model": "FindFileByKeywordOutput"
   },
   "list_project_files": {
-    "description": "Recursively scans a project directory for files, supporting directory exclusion and file type inclusion filters. Returns files as a list of string paths.",
+    "description": "Lists all files in a directory with optional include/exclude filters for extensions.",
     "import_path": "tools.list_project_files.list_project_files",
     "parameters": {
       "type": "object",
       "properties": {
         "root": {
           "type": "string",
-          "description": "The root directory to scan. Defaults to the project root if not provided."
-        },
-        "exclude": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "List of directory names or substrings to exclude (e.g., ['venv', '.venv', '__pycache__', 'models'])."
+          "description": "Directory to list files from (default is current directory)."
         },
         "include": {
           "type": "array",
           "items": {
             "type": "string"
           },
-          "description": "List of file extensions to include (e.g., ['.py', '.md', '.toml', '.yaml', '.json'])."
+          "description": "List of file extensions to include (e.g., ['.py', '.txt'])."
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of file extensions or directory names to exclude (e.g., ['.pyc', '__pycache__'])."
         }
       },
       "required": []
@@ -147,32 +134,36 @@
     "output_model": "ListProjectFilesOutput"
   },
   "llm_response_async": {
-    "description": "Sends a prompt to the LLM and returns the generated natural language response.",
-    "import_path": "tools.llm_response_async.llm_response_async",
+    "description": "Calls the LLM directly with a prompt and returns the response as text.",
+    "import_path": "tools.llm_response_async.run",
     "parameters": {
       "type": "object",
       "properties": {
         "prompt": {
           "type": "string",
-          "description": "Instruction or context to send to the LLM."
+          "description": "The prompt to send to the LLM."
         }
       },
       "required": [
         "prompt"
       ]
     },
-    "input_model": "LlmResponseAsyncInput",
-    "output_model": "LlmResponseAsyncOutput"
+    "input_model": "LLMResponseInput",
+    "output_model": "LLMResponseOutput"
   },
   "locate_file": {
-    "description": "Searches common development directories (home, project root) for a file with the exact name provided.",
+    "description": "Locates a file by name in a directory.",
     "import_path": "tools.locate_file.locate_file",
     "parameters": {
       "type": "object",
       "properties": {
         "filename": {
           "type": "string",
-          "description": "Exact name of the file to locate (e.g., 'model.pth', 'config.yaml', 'checkpoint.bin')."
+          "description": "Name of the file to locate."
+        },
+        "root": {
+          "type": "string",
+          "description": "Directory to start search (default is current directory)."
         }
       },
       "required": [
@@ -183,14 +174,14 @@
     "output_model": "LocateFileOutput"
   },
   "make_virtualenv": {
-    "description": "Creates a Python virtual environment at a path.",
+    "description": "Creates a virtual environment in the specified directory.",
     "import_path": "tools.make_virtualenv.make_virtualenv",
     "parameters": {
       "type": "object",
       "properties": {
         "path": {
           "type": "string",
-          "description": "Where to create the environment."
+          "description": "Directory where the virtual environment should be created."
         }
       },
       "required": [
@@ -201,18 +192,17 @@
     "output_model": "MakeVirtualenvOutput"
   },
   "read_files": {
-    "description": "Reads the contents of one or more files and returns them as a list of file-content mappings.",
+    "description": "Reads the contents of one or more files.",
     "import_path": "tools.read_files.read_files",
     "parameters": {
       "type": "object",
       "properties": {
         "path": {
           "type": "array",
-          "description": "List of file paths to read",
           "items": {
             "type": "string"
           },
-          "minItems": 1
+          "description": "List of file paths to read."
         }
       },
       "required": [
@@ -223,14 +213,14 @@
     "output_model": "ReadFilesOutput"
   },
   "retrieval_tool": {
-    "description": "Searches environment variables, .env files, and project files for secrets based on query intent.",
+    "description": "Searches for files or content using a keyword related to secret (e.g. GitHub token, Hugging Face password).",
     "import_path": "tools.retrieval_tool.retrieval_tool",
     "parameters": {
       "type": "object",
       "properties": {
         "query": {
           "type": "string",
-          "description": "Intent or keyword related to secret (e.g. GitHub token, Hugging Face password)."
+          "description": "Keyword related to secret (e.g. GitHub token, Hugging Face password)."
         }
       },
       "required": [

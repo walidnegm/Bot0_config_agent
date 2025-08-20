@@ -75,100 +75,68 @@ class ToolChainExecutor:
             try:
                 output = self._run_tool_once(tool_name, params)
                 status = self._coerce_status(output.get("status", StepStatus.SUCCESS))
+                message = output.get("message", "")
+                result = output.get("result")
+                fsm.mark_completed(step_id, result)
                 result_entry.status = status
-                result_entry.message = output.get("message", "")
-                result_entry.result = output.get("result", output)
-                result_entry.state = StepState.COMPLETED if status == StepStatus.SUCCESS else StepState.FAILED
-
-                logger.debug(f"[Executor] Step {step_id} finished with state: {result_entry.state}")
-
-                if result_entry.state == StepState.COMPLETED:
-                    fsm.mark_completed(step_id, output)
-                else:
-                    fsm.mark_failed(step_id, result_entry.message or "")
-
+                result_entry.message = message
+                result_entry.result = result
+                result_entry.state = StepState.COMPLETED
             except Exception as e:
-                error_msg = str(e)
-                logger.error(f"[Executor] Step {step_id} failed: {error_msg}", exc_info=True)
+                error_message = str(e)
+                logger.error(f"[Executor] Step {step_id} failed: {e}", exc_info=True)
+                fsm.mark_failed(step_id, error_message)
                 result_entry.status = StepStatus.ERROR
-                result_entry.message = error_msg
+                result_entry.message = error_message
                 result_entry.state = StepState.FAILED
-                fsm.mark_failed(step_id, error_msg)
 
             executed_results.append(result_entry)
 
         logger.info(f"[Executor] Plan execution complete, {len(executed_results)} results collected.")
         return ToolResults(results=executed_results)
 
-    def _coerce_status(self, v) -> StepStatus:
-        if isinstance(v, StepStatus): return v
-        if isinstance(v, str):
-            s = v.strip().lower()
-            if s == "success": return StepStatus.SUCCESS
-            if s == "error": return StepStatus.ERROR
-        return StepStatus.SUCCESS
-        
+    def _coerce_status(self, status: Any) -> StepStatus:
+        if isinstance(status, str):
+            return StepStatus(status.lower())
+        return status if isinstance(status, StepStatus) else StepStatus.SUCCESS
+
     def _resolve_step_dependencies(self, params: Any, fsm: ToolChainFSM) -> Any:
         """
-        Recursively resolves parameter values that reference previous step outputs,
-        including placeholders embedded within strings.
+        Recursively resolve placeholders in params (str, dict, list).
         """
-        if isinstance(params, dict):
+        placeholder_pattern = r"<step_(\d+)(?:\.(.+?))?>"
+
+        def replacer(match):
+            step_id = f"step_{match.group(1)}"
+            attribute_path = match.group(2).split('.') if match.group(2) else []
+            prev_output = fsm.get_step_output(step_id)
+            if prev_output is None:
+                logger.warning(f"No output available for referenced step: {step_id}. Using empty string as fallback.")
+                return ""
+            value = prev_output
+            try:
+                for attr in attribute_path:
+                    if isinstance(value, dict):
+                        value = value.get(attr)
+                    else:
+                        value = getattr(value, attr)
+                    if value is None:
+                        logger.warning(f"Attribute '{attr}' resolved to None in '{match.group(0)}'. Using empty string.")
+                        return ""
+                return value
+            except (AttributeError, KeyError, TypeError) as e:
+                logger.warning(f"Failed to resolve path in '{match.group(0)}': {e}. Using empty string.")
+                return ""
+
+        if isinstance(params, str):
+            match = re.fullmatch(placeholder_pattern, params)
+            if match:
+                return replacer(match)
+            return re.sub(placeholder_pattern, replacer, params)
+        elif isinstance(params, dict):
             return {k: self._resolve_step_dependencies(v, fsm) for k, v in params.items()}
-        
         elif isinstance(params, list):
             return [self._resolve_step_dependencies(v, fsm) for v in params]
-
-        elif isinstance(params, str):
-            placeholder_pattern = r"<([^>]+)>"
-
-            # This replacer function is called for each placeholder match found
-            def replacer(match):
-                ref_str = match.group(1) # The full reference, e.g., "step_0.result.files"
-                
-                parts = ref_str.split('.')
-                step_id = parts[0]
-                attribute_path = parts[1:]
-
-                prev_output = fsm.get_step_output(step_id)
-                if prev_output is None:
-                    raise ValueError(f"Could not find output for referenced step: {step_id}")
-
-                # Navigate through the output object to find the final value
-                resolved_value = prev_output
-                try:
-                    for attr in attribute_path:
-                        if isinstance(resolved_value, dict):
-                            resolved_value = resolved_value.get(attr)
-                        else:
-                            resolved_value = getattr(resolved_value, attr)
-                        if resolved_value is None:
-                            raise ValueError(f"Path part '{attr}' in '{ref_str}' resolved to None.")
-                except (AttributeError, KeyError, TypeError) as e:
-                    raise ValueError(f"Failed to resolve path '{'.'.join(attribute_path)}' in output of {step_id}. Error: {e}")
-                
-                # If the entire original string was a placeholder, return the raw object (like a list).
-                # Otherwise, it's embedded in a larger string, so convert it to a string.
-                if match.group(0) == params:
-                    return resolved_value
-                else:
-                    return str(resolved_value)
-
-            # Use a temporary variable to hold the result of re.sub
-            # re.sub can fail if the input `params` is not a string, which can happen
-            # if a previous replacement in a dictionary comprehension returns a non-string.
-            # This logic is now safer.
-            if re.search(placeholder_pattern, params):
-                # The crucial check: Is the entire string just one placeholder?
-                match = re.fullmatch(placeholder_pattern, params)
-                if match:
-                    # If yes, resolve it directly without re.sub to preserve its type (e.g., list)
-                    return replacer(match)
-                else:
-                    # If no, it's embedded in a string, so use re.sub for substitution
-                    return re.sub(placeholder_pattern, replacer, params)
-            
-            return params
         else:
             return params
 
@@ -179,8 +147,7 @@ class ToolChainExecutor:
         if tool_name == "llm_response_async":
             tool_fn = self.registry.get_function(
                 tool_name,
-                local_model_name=self.planner.local_model_name if self.planner else None,
-                api_model_name=self.planner.api_model_name if self.planner else None
+                planner=self.planner
             )
         else:
             tool_fn = self.registry.get_function(tool_name)

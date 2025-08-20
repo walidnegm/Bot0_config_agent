@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union  # Added Any to fix the error
 from pydantic import BaseModel, Field, field_validator, model_validator
 from agent_models.step_state import StepState
 from agent_models.step_status import StepStatus
@@ -100,70 +100,54 @@ NodeType = Literal["directory", "file"]
 class DirectoryNode(BaseModel):
     """
     One node in the directory tree.
-
     - For files: `type="file"`, no children.
     - For directories: `type="directory"`, children is a (possibly empty) list.
     """
-    name: str = Field(..., description="Base name of the file or directory.")
-    type: NodeType = Field(..., description="'directory' or 'file'.")
-    children: Optional[List["DirectoryNode"]] = Field(
-        default=None, description="Present only when type == 'directory'."
+    name: str = Field(..., description="Base name of file or directory")
+    type: NodeType = Field(..., description="Node type: 'file' or 'directory'")
+    path: str = Field(..., description="Relative path from the root")
+    children: List[DirectoryNode] = Field(
+        default_factory=list, description="Child nodes (for directories only)"
     )
-
-    @model_validator(mode="after")
-    def _enforce_children_rules(self) -> "DirectoryNode":
-        if self.type == "file" and self.children is not None:
-            raise ValueError("Files must not include 'children'.")
-        if self.type == "directory" and self.children is None:
-            object.__setattr__(self, "children", [])
-        return self
-
-
-DirectoryNode.model_rebuild()  # for forward refs
 
 
 class FindDirStructureResult(BaseModel):
-    """
-    Wrapper returned by tools.find_dir_structure.find_dir_structure().
-    """
-    status: StepStatus
-    message: str = Field("", description="Summary or error message.")
-    result: Optional[DirectoryNode] = Field(
-        None, description="Directory tree when status=='success'; None on error."
-    )
+    tree: DirectoryNode
+
+
+class FindDirStructureOutput(ToolOutput):
+    result: Optional[FindDirStructureResult] = None
 
 
 # -----------------------------------------------------------------------------
 # find_file_by_keyword
 # -----------------------------------------------------------------------------
 class FindFileByKeywordInput(BaseModel):
-    keywords: List[str]
+    keyword: str
     root: Optional[str] = None
 
 
-class FindFileByKeywordResult(BaseModel):
-    files: List[str]
-
-
 class FindFileByKeywordOutput(ToolOutput):
-    result: Optional[FindFileByKeywordResult] = None
+    result: Optional[List[str]] = None  # list of matching file paths
 
 
 # -----------------------------------------------------------------------------
 # list_project_files
 # -----------------------------------------------------------------------------
-class ListProjectFilesResult(BaseModel):
-    files: List[str]
+class ListProjectFilesInput(BaseModel):
+    root: Optional[str] = None
+    include: Optional[List[str]] = None
+    exclude: Optional[List[str]] = None
 
 
 class ListProjectFilesOutput(ToolOutput):
-    result: ListProjectFilesResult
+    result: Optional[List[str]] = None  # list of file paths
 
 
 # -----------------------------------------------------------------------------
 # llm_response_async
 # -----------------------------------------------------------------------------
-class LlmResponseAsyncInput(BaseModel):
+class LLMResponseInput(BaseModel):
     prompt: str
 
 
@@ -171,8 +155,8 @@ class LLMResponseResult(BaseModel):
     text: str
 
 
-class LlmResponseAsyncOutput(ToolOutput):
-    result: Optional[LLMResponseResult] = None  # generated content
+class LLMResponseOutput(ToolOutput):
+    result: Optional[LLMResponseResult] = None
 
 
 # -----------------------------------------------------------------------------
@@ -180,16 +164,21 @@ class LlmResponseAsyncOutput(ToolOutput):
 # -----------------------------------------------------------------------------
 class LocateFileInput(BaseModel):
     filename: str
+    root: Optional[str] = None
 
 
+class LocateFileOutput(ToolOutput):
+    result: Optional[str] = None  # file path or None
+
+# -----------------------------------------------------------------------------
+# locate_file
+# -----------------------------------------------------------------------------
 class LocateFileResult(BaseModel):
-    path: Optional[str] = None
+    path: str
 
 
 class LocateFileOutput(ToolOutput):
     result: Optional[LocateFileResult] = None
-
-
 # -----------------------------------------------------------------------------
 # make_virtualenv
 # -----------------------------------------------------------------------------
@@ -198,38 +187,18 @@ class MakeVirtualenvInput(BaseModel):
 
 
 class MakeVirtualenvOutput(ToolOutput):
-    result: Optional[dict] = None  # keep generic (e.g., {"created": true})
+    result: Optional[str] = None  # path to created virtualenv
 
 
 # -----------------------------------------------------------------------------
 # read_files
-#   NOTE: Registry expects an inner "<Tool>NameResult". We provide
-#         ReadFilesResult so 'ReadFilesResult' can be resolved.
 # -----------------------------------------------------------------------------
-# In tools/tool_models.py
-
 class ReadFilesInput(BaseModel):
-    # The path should always be a list of strings
     path: List[str]
-
-    # This validator now correctly handles both single strings and existing lists
-    @field_validator("path", mode="before")
-    @classmethod
-    def ensure_path_is_list(cls, v):
-        if isinstance(v, str):
-            return [v]
-        if isinstance(v, list):
-            return v
-        # Add handling for other potential types if necessary, or raise an error
-        raise TypeError("path must be a string or a list of strings")
-
-class ReadFileItem(BaseModel):
-    file: str
-    content: str
 
 
 class ReadFilesResult(BaseModel):
-    files: List[ReadFileItem]
+    contents: Dict[str, str]  # path -> content
 
 
 class ReadFilesOutput(ToolOutput):
@@ -339,4 +308,3 @@ class ToolSpec(BaseModel):
     parameters: Dict[str, Any]  # keep JSON Schema here if you want
     input_model: Optional[str] = None  # e.g. "ReadFilesInput"
     output_model: Optional[str] = None  # e.g. "ReadFilesResult"
-

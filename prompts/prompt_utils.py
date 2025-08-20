@@ -1,147 +1,181 @@
 """
-prompts/utils/prompt_utils.py
+prompts/prompt_utils.py
 
-Helper functions to for loading/generating/validating prompts.
+Centralized, robust extraction & verification utilities for JSON tool plans
+produced by LLMs. All modules (Planner, LLMManager, classifiers) should use
+these helpers to avoid duplicated regex logic and inconsistent behavior.
+
+Key features:
+- Handles code fences and noisy wrappers
+- Supports a sentinel line "FINAL_JSON" to disambiguate the intended array
+- Finds balanced top-level JSON arrays (ignoring brackets inside strings)
+- Structural validation of plan items: each must be {"tool": str, "params": dict}
 """
-import json, re
-from typing import List  # add List to your existing typing imports
 
-from pathlib import Path
-import logging
-from typing import Any, Dict, Optional, Tuple
-import yaml
-from configs.paths import PROMPTS_CONFIG, AGENT_PROMPTS
+from __future__ import annotations
 
-logger = logging.getLogger(__name__)
+import json
+import re
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 
-def load_prompt_config() -> Dict[str, Any]:
+# =============================================================================
+# Low-level helpers
+# =============================================================================
+
+_CODE_FENCE_RE = re.compile(r"```(?:json|JSON)?\s*|\s*```", re.MULTILINE)
+
+_CHAT_PREFIX_RE = re.compile(r"(?i)(system|user|assistant):.*?(?=\n\n|$)", re.MULTILINE | re.DOTALL)  # Added to strip chat prefixes
+
+def strip_code_fences(text: str) -> str:
+    """Remove Markdown code fences to reduce parse failures."""
+    return _CODE_FENCE_RE.sub("", text or "").strip()
+
+
+def strip_chat_prefixes(text: str) -> str:
+    """Strip repetitive chat prefixes like 'System:', 'User:' to clean noisy local model outputs."""
+    return _CHAT_PREFIX_RE.sub("", text).strip()
+
+
+def _last_sentinel_index(s: str, sentinel: str = "FINAL_JSON") -> int:
     """
-    Loads and validates the prompt configuration from `prompts_config.yaml`.
-
-    Resolves the relative path to the prompt template file and adds it to
-    the returned dictionary under
-    the key `prompt_templates.resolved_template_path`.
-
-    Expected YAML schema:
-        prompt_templates:
-        template_file: "../prompts/chat_templates.yaml"
-        active_templates:
-            system: "default"
-            user: "question"
-
-    Returns:
-        dict: The full config dictionary with an additional absolute key:
-              config["prompt_templates"]["resolved_template_path"]
-
-    Raises:
-        FileNotFoundError: If the config file or template file doesn't exist.
-        KeyError: If expected keys are missing in the YAML structure.
-        yaml.YAMLError: If the YAML is malformed.
+    Find the last occurrence of a LINE that equals the sentinel (case-sensitive),
+    return the char index just after that line. -1 if not found.
     """
-    logger.info(f"[load_prompt_config] 📄 Loading from: {PROMPTS_CONFIG}")
-
-    try:
-        with open(PROMPTS_CONFIG, "r", encoding="utf-8") as f:
-            config = yaml.safe_load(f)
-    except FileNotFoundError:
-        logger.error(f"[load_prompt_config] ❌ Not found: {PROMPTS_CONFIG}")
-        raise
-    except yaml.YAMLError as e:
-        logger.error(f"[load_prompt_config] ❌ YAML error: {e}")
-        raise
-
-    try:
-        prompt_templates = config["prompt_templates"]
-    except KeyError as e:
-        raise KeyError(f"Missing key in config file: {e}")
-
-    resolved_path = AGENT_PROMPTS.resolve()
-    prompt_templates["resolved_template_path"] = str(resolved_path)
-    logger.info(f"[load_prompt_config] ✅ Resolved template: {resolved_path}")
-
-    return config
+    matches = list(re.finditer(rf"(?m)^\s*{re.escape(sentinel)}\s*$", s))
+    return matches[-1].end() if matches else -1
 
 
-def load_prompt_templates(template_path: Path) -> Dict[str, str]:
+def _scan_balanced_json_array(s: str, start_pos: int) -> Optional[str]:
     """
-    Load the prompt templates from the given YAML file.
-
-    Args:
-        template_path (Path): Path to YAML template file.
-
-    Returns:
-        Dict[str, str]: Mapping of prompt keys to strings.
-
-    Raises:
-        FileNotFoundError, ValueError, yaml.YAMLError
+    From start_pos, find the first '[' and return the substring of the balanced
+    JSON array including nested objects/arrays. Ignores brackets inside quoted strings.
+    Returns None if not found or unbalanced.
     """
-    if not template_path.exists():
-        raise FileNotFoundError(f"Prompt template file not found: {template_path}")
-
-    logger.info(f"[load_prompt_templates] 📄 Reading: {template_path}")
-
-    try:
-        with open(template_path, "r", encoding="utf-8") as f:
-            templates = yaml.safe_load(f)
-        if not isinstance(templates, dict):
-            raise ValueError("Prompt template file must contain a dict of templates.")
-        return templates
-    except yaml.YAMLError as e:
-        logger.error(f"[load_prompt_templates] ❌ YAML error: {e}")
-        raise
-
-
-def get_prompts() -> Tuple[str, str]:
-    """
-    Resolve and return the active (system, user) prompts.
-
-    Returns:
-        Tuple[str, str]: (system_prompt, user_prompt)
-
-    Raises:
-        KeyError: If active keys are missing or not in template file.
-    """
-    config = load_prompt_config()
-    resolved_path = Path(config["prompt_templates"]["resolved_template_path"])
-    templates = load_prompt_templates(resolved_path)
-
-    active = config["prompt_templates"]["active_templates"]
-    system_key = active.get("system")
-    user_key = active.get("user")
-
-    try:
-        return templates[system_key], templates[user_key]
-    except KeyError as e:
-        raise KeyError(f"Missing template key in file: {e}")
-
-
-    # === JSON-plan extraction helpers ===
-
-FINAL_SENTINEL = "=== FINAL_JSON ==="
-
-# conservative: match a top-level JSON array of objects
-_JSON_ARRAY_RE = re.compile(r'\[\s*{.*?}\s*\]', re.S)
-
-def extract_after_sentinel(text: str, sentinel: str = FINAL_SENTINEL) -> List[str]:
-    """Return all JSON arrays that appear AFTER the sentinel line."""
-    if not text:
-        return []
-    parts = text.split(sentinel)
-    tail = parts[-1] if parts else text
-    return [m.group(0) for m in _JSON_ARRAY_RE.finditer(tail)]
-
-def extract_all_json_arrays(text: str) -> List[str]:
-    """Return all JSON arrays found anywhere in the text."""
-    if not text:
-        return []
-    return [m.group(0) for m in _JSON_ARRAY_RE.finditer(text)]
-
-def safe_parse_json_array(s: str):
-    """Parse a JSON string; return list if it is a JSON array, else None."""
-    try:
-        v = json.loads(s)
-        return v if isinstance(v, list) else None
-    except Exception:
+    n = len(s)
+    i = start_pos
+    while i < n and s[i] != "[":
+        i += 1
+    if i >= n:
         return None
 
+    depth = 0
+    in_string = False
+    escape = False
+    start_idx = i
+
+    while i < n:
+        ch = s[i]
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+        else:
+            if ch == '"':
+                in_string = True
+            elif ch == '[':
+                depth += 1
+            elif ch == ']':
+                depth -= 1
+                if depth == 0:
+                    return s[start_idx:i+1]
+        i += 1
+    return None
+
+
+def extract_last_valid_plan_text(
+    raw_text: str,
+    use_sentinel: bool = True,
+    sentinel: str = "FINAL_JSON",
+) -> str:
+    """
+    Extract the text of the last valid JSON array from raw LLM output.
+    Prioritizes the array after the last sentinel, falls back to the last balanced array.
+    """
+    text = strip_code_fences(strip_chat_prefixes(raw_text)).strip()  # Added strip_chat_prefixes
+
+    if use_sentinel:
+        sentinel_idx = _last_sentinel_index(text, sentinel)
+        if sentinel_idx >= 0:
+            array_text = _scan_balanced_json_array(text, sentinel_idx)
+            if array_text:
+                return array_text
+
+    # Fallback: find the last balanced array in the text
+    pos = 0
+    last_array = "[]"
+    while True:
+        array_text = _scan_balanced_json_array(text, pos)
+        if array_text is None:
+            break
+        last_array = array_text
+        pos += len(array_text)
+
+    return last_array
+
+
+def parse_plan_json(plan_text: str) -> List[Dict[str, Any]]:
+    """
+    Parse a JSON array string into a Python list. Returns [] on failure
+    instead of raising (caller can decide how to fallback).
+    """
+    try:
+        data = json.loads(plan_text)
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def validate_plan_structure(
+    plan: Sequence[Dict[str, Any]],
+    allowed_tools: Optional[Iterable[str]] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Validate that each plan item looks like: {"tool": str, "params": dict}.
+    Optionally enforce that the tool name is in `allowed_tools`.
+
+    Returns a filtered list of only valid items.
+    """
+    allowed = set(allowed_tools) if allowed_tools else None
+    validated: List[Dict[str, Any]] = []
+
+    for idx, item in enumerate(plan):
+        if not isinstance(item, dict):
+            continue
+        tool = item.get("tool")
+        params = item.get("params")
+        if not isinstance(tool, str) or not tool.strip():
+            continue
+        if not isinstance(params, dict):
+            # Some models put null/[] — normalize to empty dict
+            if params in (None, []):
+                params = {}
+            else:
+                continue
+        if allowed is not None and tool not in allowed:
+            # Skip unknown tools if a whitelist is enforced by caller
+            continue
+        validated.append({"tool": tool.strip(), "params": params})
+    return validated
+
+
+def extract_and_validate_plan(
+    raw_text: str,
+    allowed_tools: Optional[Iterable[str]] = None,
+    use_sentinel: bool = True,
+    sentinel: str = "FINAL_JSON",
+) -> List[Dict[str, Any]]:
+    """
+    One-shot utility:
+      - Extract the most reliable JSON array text from raw LLM output
+      - Parse it
+      - Validate structure (and optionally whitelist tools)
+    """
+    plan_text = extract_last_valid_plan_text(
+        raw_text=raw_text, use_sentinel=use_sentinel, sentinel=sentinel
+    )
+    plan = parse_plan_json(plan_text)
+    return validate_plan_structure(plan, allowed_tools=allowed_tools)

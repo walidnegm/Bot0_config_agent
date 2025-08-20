@@ -1,107 +1,45 @@
 # prompts.yaml.j2
-evaluator: # holder for now
-  system_prompt: |
-    You are a detailed evaluator. Given a task and a response, provide a score and reasoning.
+# This is the definitive, hardened prompt file designed for hybrid model support.
+# It removes the fragile intent classification step entirely.
 
-  user_prompt: |
-    Task: {{ task }}
-    Response: {{ response }}
-
-intent_classifier:
-  task_decomposition:
-    description: "Classifies whether a user task is single-step or multi-step."
-    system_prompt: |
-      You are an LLM task decomposition classifier.
-    single_vs_multi_step_prompt: |
-      Analyze the user task.
-      If the task can be answered in one LLM call, output "single-step".
-      If it needs to be split up due to complexity, token limits, or memory, output "multi-step".
-      Only respond with "Single-step" or "Multi-step". Do not include any other text or labels.
-
-      Examples:
-      User task: List all files in the project.
-      Single-step
-      User task: Summarize every Python file in this 200-file repo.
-      Multi-step
-
-    user_task_prompt: |
-      User task: {{ user_task }}
-
-  describe_only:
-    description: "Detects if the user is asking to describe, summarize, or give an overview of the project."
-    system_prompt: |
-      You are an intent classifier for project summary tasks.
-    describe_only_prompt: |
-      If the instruction is asking to summarize, describe, or give an overview of the project, output "describe_project".
-      Otherwise, output "unknown".
-      Only respond with "describe_project" or "unknown". Do not include any other text or labels.
-
-      Examples:
-      Instruction: Describe this project.
-      describe_project
-      Instruction: What is CUDA?
-      unknown
-
-    user_task_prompt: |
-      User task: {{ user_task }}
-
-# ##########################################################################
-# FINAL HYBRID PLANNER
-# This version is robust for simple models (with FINAL_JSON) and
-# clean for smart models. It also fixes all previous bugs.
-# ##########################################################################
 planner:
   system_prompt: |
-    You are a precise tool-planning assistant for a command-line agent. Your SOLE task is to choose the single best tool to solve the user's request.
-    You MUST respond in the exact format requested.
+    You are a tool-planning AI. Your only function is to receive a user request and respond with a JSON array of tool calls.
+    Do not engage in conversation. Do not add explanations. Adhere strictly to the requested format.
 
-  user_task_prompt: |
-    User task: {{ user_task }}
-
-  select_single_tool_prompt: |
-    Based on the user's task, select the single best tool from the following list.
+  # This single, powerful prompt is now used for ALL tasks.
+  main_planner_prompt: |
+    Review the user's task and create a JSON array of tool calls to solve it. You MUST break the task down into all necessary steps.
 
     === Tool List ===
     {% for tool in tools %}
     - {{ tool.name }}({% for param, meta in tool.parameters.items() %}{{ param }}: {{ meta.type }}{% if not loop.last %}, {% endif %}{% endfor %}): {{ tool.description }}
     {% endfor %}
 
-    === Rules ===
-    1. Your ONLY output must be a single, valid JSON array.
-    2. Provide the tool name and any required parameters.
-    3. When you are ready, you MUST write a line with exactly: FINAL_JSON
-    4. Immediately after that line, output ONLY the JSON array. Do not include code fences, markdown, or any other text.
+    === CRITICAL RULES ===
+    1. Your ONLY output must be a single, valid JSON array containing one or more tool calls.
+    2. If a step needs output from a previous step, use the reference format "<step_N.attribute>". Example: "<step_0.files>".
+    3. **IMPORTANT**: For summarization tasks, your plan MUST use `list_project_files`, then `read_files`, then `aggregate_file_content`, and finally `llm_response_async`.
+    4. You MUST signal the end of your thinking by writing a line with only the word: FINAL_JSON
+    5. After the FINAL_JSON line, you MUST ONLY output the JSON array. Nothing else. Do not generate any conversational text, repetitions, or hallucinations. Stick exactly to facts from tools.
 
-    === Example ===
-    User task: list all python files in the src folder
+    {% if local_model %}  # Added conditional for local models
+    === LOCAL MODEL GUIDANCE ===
+    You are not a chat assistant—do not generate responses like "Sure, I can help!". Output ONLY the FINAL_JSON and JSON array. Avoid repeating "System" or "User" lines. If unsure, use tools to verify facts before planning—no guessing or inventing numbers.
+    {% endif %}
+
+    === Example 1: Single-Step Task ===
+    User task: count all files in the agent folder
     FINAL_JSON
     [
       {
-        "tool": "list_project_files",
-        "params": {
-          "root": "src",
-          "include": [".py"]
-        }
+        "tool": "find_dir_size",
+        "params": { "root": "agent" }
       }
     ]
 
-  # This prompt is duplicated to avoid the Jinja2 error.
-  select_multi_tool_prompt: |
-    Based on the user's task, select the best tools from the following list.
-
-    === Tool List ===
-    {% for tool in tools %}
-    - {{ tool.name }}({% for param, meta in tool.parameters.items() %}{{ param }}: {{ meta.type }}{% if not loop.last %}, {% endif %}{% endfor %}): {{ tool.description }}
-    {% endfor %}
-
-    === Rules ===
-    1. Your ONLY output must be a single, valid JSON array.
-    2. Provide the tool name and any required parameters.
-    3. When you are ready, you MUST write a line with exactly: FINAL_JSON
-    4. Immediately after that line, output ONLY the JSON array. Do not include code fences, markdown, or any other text.
-
-    === Example ===
-    User task: find all config files and summarize them
+    === Example 2: Multi-Step Task ===
+    User task: find all config files and write a one-paragraph summary of them
     FINAL_JSON
     [
       {
@@ -109,21 +47,28 @@ planner:
         "params": { "include": [".yaml", ".toml", ".json"] }
       },
       {
-        "tool": "summarize_files",
-        "params": { "files": "<step_0>" }
+        "tool": "read_files",
+        "params": { "path": "<step_0.files>" }
+      },
+      {
+        "tool": "aggregate_file_content",
+        "params": { "steps": ["<step_1>"] }
+      },
+      {
+        "tool": "llm_response_async",
+        "params": { "prompt": "Write a one-paragraph summary of the following file contents:\n<step_2>" }
       }
     ]
 
-  return_json_only_prompt: |
-    Now, fulfill the request for the user task below following all rules.
+    === Example 3: Fact-Checking Task (No Hallucination) ===
+    User task: is there a file called example.py
+    FINAL_JSON
+    [
+      {
+        "tool": "locate_file",
+        "params": { "filename": "example.py", "root": "." }
+      }
+    ]
+
+    Now, generate the tool plan for the following user task. Adhere to all rules.
     User task: {{ user_task }}
-
-summarizer: # holder for now
-  system_prompt: |
-    You are a technical summarizer. Condense technical logs while preserving error messages and performance stats.
-
-  summarize_prompt: |
-    Give a concise summary of the project based on the following files:
-    <prev_output>
-    Highlight purpose, key components, and usage.
-    {{ log_text }}

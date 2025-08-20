@@ -471,9 +471,9 @@ class LLMManager:
         """
         loader_kwargs = config.model_dump(exclude={"model_id_or_path"})
         loader_kwargs["device"] = "cuda" if torch.cuda.is_available() else "cpu"
-        
+
         loader_kwargs.pop("disable_exllama", None)
-        loader_kwargs.pop("group_size", None) # <-- ADD THIS NEW LINE
+        loader_kwargs.pop("group_size", None)  # <-- ADD THIS NEW LINE
         self.model = GPTQModel.from_quantized(config.model_id_or_path, **loader_kwargs)
         tokenizer = AutoTokenizer.from_pretrained(
             config.model_id_or_path, use_fast=True, token=os.getenv("HUGGING_FACE_HUB_TOKEN")
@@ -690,3 +690,4 @@ class LLMManager:
         if expected_res_type == "json":
             return _extract_json_array_text(decoded)
         return decoded
+

@@ -63,81 +63,55 @@ def _load_section(
     env = Environment(loader=FileSystemLoader(template_dir))
     template = env.get_template(template_name)
     rendered = template.render(**kwargs)
-    config = yaml.safe_load(rendered)
-    if section not in config:
-        raise KeyError(f"Section '{section}' not found in template file.")
-    return config[section]
+    cfg = yaml.safe_load(rendered)
+    return cfg.get(section, {})
 
 
 def load_planner_prompts(
     user_task: str = "",
+    tools: List[Dict[str, Any]] = None,
     template_path: Path | str = AGENT_PROMPTS,
+    local_model: bool = False,  # Added to detect local models
 ) -> Dict[str, Any]:
     """
-    Loads the planner prompt section, auto-injecting tool registry.
-
-    Load and render the planner prompt configuration using Jinja2 and YAML.
-
-    Args:
-        template_path (Path|str): Path to the Jinja2 YAML prompt template.
-        user_task (str): The task the user is asking for; injected into
-            the prompt.
-        tools (List[Dict[str, Any]]): A list of tool definitions to inject.
-
-    Returns:
-        Dict[str, Any]: A dictionary containing:
-            - system_prompt
-            - select_single_tool_prompt
-            - select_multi_tool_prompt
-            ...
+    Loads the planner prompt section with tools injected.
     """
-    tool_registry = ToolRegistry()
-
-    tools_for_prompt = []
-    for name, spec in tool_registry.tools.items():
-        s = _to_dict(spec)
-        tools_for_prompt.append(
-            {
-                "name": name,
-                "description": s.get("description", ""),
-                "usage_hint": s.get("usage_hint", ""),
-                "parameters": _extract_parameters(s),
-            }
-        )
+    tools = tools or ToolRegistry().get_all()
+    tools_list = []
+    for tool in tools:
+        params = _extract_parameters(tool)
+        tools_list.append({
+            "name": tool["name"],
+            "description": tool["description"],
+            "parameters": params,
+        })
 
     return _load_section(
         section="planner",
         template_path=template_path,
         user_task=user_task,
-        tools=tools_for_prompt,
+        tools=tools_list,
+        local_model=local_model,  # Inject for conditional prompt
     )
 
 
-def load_summarizer_prompt(
-    log_text: str = "",
+def load_summarizer_prompts(
     user_task: str = "",
     template_path: Path | str = AGENT_PROMPTS,
 ) -> Dict[str, Any]:
     """
-    Loads the summarizer prompt configuration from a YAML file.
-
-    Returns:
-        Dict[str, Any]: Dictionary with keys:
-            - system_prompt
-            - user_prompt
+    Loads the summarizer prompt section.
     """
     return _load_section(
         section="summarizer",
         template_path=template_path,
-        log_text=log_text,
         user_task=user_task,
     )
 
 
-def load_evaluator_prompt(
+def load_evaluator_prompts(
     task: str = "",
     response: str = "",
-    user_task: str = "",
     template_path: Path | str = AGENT_PROMPTS,
 ) -> Dict[str, Any]:
     """
@@ -148,7 +122,7 @@ def load_evaluator_prompt(
         template_path=template_path,
         task=task,
         response=response,
-        user_task=user_task,
+        user_task=task,  # Alias for consistency
     )
 
 
@@ -205,13 +179,3 @@ def load_describe_only_prompt(
             f"Expected a dict for describe_only, got {type(desc_only_prompts).__name__} ({desc_only_prompts!r})"
         )
     return desc_only_prompts
-
-
-# # Static (global) prompt dict for classifier-only (no runtime injection needed)
-# try:
-#     PROMPTS = _load_section("intent_classifier")
-# except Exception as e:
-#     PROMPTS = {}
-#     logger.error(
-#         "[load_agent_prompts] Failed to load global intent_classifier prompts: %s", e
-#     )

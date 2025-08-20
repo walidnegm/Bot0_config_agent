@@ -1,8 +1,20 @@
-import logging
-import asyncio
-from typing import Dict
+"""
+tools/llm_response_async.py
+Direct LLM response tool with hardened normalization.
 
-# Import the Planner and helper models
+Fixes:
+- Always unwrap validator/helper objects to plain text.
+- If a weird helper (e.g., _LLMResult) slips through, extract attributes
+  like `.text`, `.content`, or `.choices[0].message.content` before
+  falling back to str().
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from typing import Any, Dict, Optional
+
 from agent.planner import Planner
 from agent_models.agent_models import TextResponse
 from agent_models.step_status import StepStatus
@@ -10,31 +22,65 @@ from tools.tool_models import LLMResponseResult, ToolOutput
 
 logger = logging.getLogger(__name__)
 
-def llm_response_async(*, prompt: str, local_model_name: str = None, api_model_name: str = None, **kwargs) -> Dict:
+
+def _coerce_to_text(obj: Any, default: str = "") -> str:
+    """Best-effort extraction of text from many SDK/validator shapes."""
+    if obj is None:
+        return default
+
+    # Pydantic TextResponse
+    if isinstance(obj, TextResponse):
+        return getattr(obj, "text", None) or getattr(obj, "content", None) or default
+
+    # dict-like payloads
+    if isinstance(obj, dict):
+        for k in ("text", "content", "message"):
+            if k in obj and isinstance(obj[k], str) and obj[k].strip():
+                return obj[k].strip()
+        # OpenAI-like
+        try:
+            return (
+                obj["choices"][0]["message"]["content"]
+            ).strip()
+        except Exception:
+            pass
+
+    # SDK objects with attributes
+    for attr in ("text", "content"):
+        try:
+            val = getattr(obj, attr, None)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+        except Exception:
+            pass
+
+    # OpenAI Chat completion object-ish
+    try:
+        choices = getattr(obj, "choices", None)
+        if choices:
+            msg = getattr(choices[0], "message", None)
+            if msg:
+                c = getattr(msg, "content", None)
+                if isinstance(c, str) and c.strip():
+                    return c.strip()
+    except Exception:
+        pass
+
+    return str(obj).strip() or default
+
+
+def run(prompt: str, planner: Planner) -> Dict[str, Any]:
     """
-    Synchronous tool wrapper that intelligently routes a prompt to either a
-    local LLM or a cloud API based on which model name is provided.
+    Synchronous entry-point required by your ToolRegistry.
     """
     try:
-        # ####################################################################
-        # UPDATED LOGIC: Instantiate a Planner to handle the dispatch.
-        # This allows the tool to correctly use either a local or API model.
-        # ####################################################################
-        planner = Planner(local_model_name=local_model_name, api_model_name=api_model_name)
-
-        # Run the async helper function in a new event loop.
         result = asyncio.run(_generate_text_async(prompt, planner))
+        text = _coerce_to_text(result, default=prompt)
 
-        if isinstance(result, TextResponse):
-            text = getattr(result, "text", "") or getattr(result, "content", "") or prompt
-        else:
-            text = str(result)
-
-        # Use Pydantic models for a clean, validated return structure.
         output = ToolOutput(
             status=StepStatus.SUCCESS,
             message="Successfully generated LLM response.",
-            result=LLMResponseResult(text=text)
+            result=LLMResponseResult(text=text),
         )
         return output.model_dump()
 
@@ -43,23 +89,19 @@ def llm_response_async(*, prompt: str, local_model_name: str = None, api_model_n
         output = ToolOutput(
             status=StepStatus.ERROR,
             message=f"LLM error: {e}",
-            result=None
+            result=None,
         )
         return output.model_dump()
 
+
 async def _generate_text_async(prompt: str, planner: Planner) -> TextResponse:
     """
-    Async helper that uses the planner's universal dispatch method to generate text.
+    Use the planner's universal dispatcher which now properly sends system+user.
     """
-    try:
-        # Use the planner's dispatch method, which can handle any model.
-        response = await planner.dispatch_llm_async(
-            user_prompt=prompt,
-            system_prompt="You are a helpful assistant.",
-            response_type="text",
-            response_model=TextResponse,
-        )
-        return response
-    except Exception as e:
-        logger.error(f"LLM generation failed during async dispatch: {e}")
-        raise
+    return await planner.dispatch_llm_async(
+        user_prompt=prompt,
+        system_prompt="You are a helpful assistant.",
+        response_type="text",
+        response_model=TextResponse,
+    )
+
