@@ -1,154 +1,194 @@
-"""prompts/load_agent_prompts.py
+# prompts/load_agent_prompts.py
+from __future__ import annotations
 
-Robust prompt section loader for multi-agent tool system.
-Supports planner, summarizer, evaluator, and intent_classifier sections.
-Auto-injects tools into planner. Jinja2 + YAML.
-"""
-
-import logging
 from pathlib import Path
-from typing import Any, Dict
-from jinja2 import Environment, FileSystemLoader
+from typing import Any, Dict, List, Optional
+
 import yaml
+from jinja2 import Environment, FileSystemLoader, Undefined
+
 from configs.paths import AGENT_PROMPTS
 from tools.workbench.tool_registry import ToolRegistry
 
-logger = logging.getLogger(__name__)
+
+# ───────────────────────────
+# Jinja filter: fromyaml
+# ───────────────────────────
+def fromyaml(text: Any) -> Any:
+    """Safe-load a YAML string (pass through dict/list). Returns {} on None/blank."""
+    if text is None:
+        return {}
+    if isinstance(text, (dict, list)):
+        return text
+    s = str(text)
+    if not s.strip():
+        return {}
+    return yaml.safe_load(s)
 
 
-def _to_dict(obj):
-    # Pydantic model → dict
+# ───────────────────────────
+# Global Jinja Environment
+# ───────────────────────────
+def _make_env(template_path: Path) -> Environment:
+    env = Environment(
+        loader=FileSystemLoader(str(template_path.parent)),
+        autoescape=False,
+        undefined=Undefined,  # lenient; switch to StrictUndefined if desired
+        keep_trailing_newline=True,
+        trim_blocks=False,
+        lstrip_blocks=False,
+    )
+    env.filters["fromyaml"] = fromyaml
+    return env
+
+
+_JINJA_ENV: Environment = _make_env(AGENT_PROMPTS)
+
+
+# ───────────────────────────
+# ToolRegistry → tools helper
+# ───────────────────────────
+def _to_dict(obj: Any) -> Dict[str, Any]:
+    """Best‑effort convert to dict for Pydantic/objects/dicts."""
+    if obj is None:
+        return {}
+    if isinstance(obj, dict):
+        return obj
+    # Pydantic v2: model_dump
     if hasattr(obj, "model_dump"):
-        return obj.model_dump()
-    return obj if isinstance(obj, dict) else {}
+        try:
+            return obj.model_dump()
+        except Exception:
+            pass
+    # Pydantic v1: dict
+    if hasattr(obj, "dict"):
+        try:
+            return obj.dict()
+        except Exception:
+            pass
+    # Fallbacks
+    try:
+        return yaml.safe_load(yaml.safe_dump(obj)) or {}
+    except Exception:
+        try:
+            return vars(obj)
+        except Exception:
+            return {}
 
 
-def _extract_parameters(spec_dict):
+def _extract_parameters(spec_dict: Dict[str, Any]) -> Dict[str, Dict[str, str]]:
     """
-    Return a simple {param: {type: "<type>"}} shape that your Jinja template expects.
-    Handles either JSON Schema style {"properties": {...}} or already-flat dicts.
+    Return {param: {type: "<type>"}} for the template.
+    Robust to string metas (e.g., "string") and object schemas.
     """
     params = spec_dict.get("parameters") or {}
     params = _to_dict(params)
+
     props = params.get("properties") or {}
     props = _to_dict(props)
 
-    # Flatten any nested pydantic fields
-    simple = {}
+    simple: Dict[str, Dict[str, str]] = {}
     for name, meta in props.items():
-        meta = _to_dict(meta)
-        simple[name] = {"type": meta.get("type", "string")}
+        m = _to_dict(meta)
+        if not isinstance(m, dict):
+            # e.g., meta == "string"  → {"type": "string"}
+            simple[name] = {"type": (str(m) if m else "string")}
+            continue
+        simple[name] = {"type": m.get("type", "string")}
     return simple
+
+
+def _tools_for_template() -> List[Dict[str, Any]]:
+    """
+    Build the list your template iterates with:
+      [
+        {
+          "name": ...,
+          "description": ...,
+          "usage_hint": ...,
+          "parameters": { param: {type: "...", ...}, ... }
+        },
+        ...
+      ]
+    """
+    reg = ToolRegistry()
+    tools_list: List[Dict[str, Any]] = []
+    for name, spec in getattr(reg, "tools", {}).items():
+        sd = _to_dict(spec)
+        tools_list.append(
+            {
+                "name": sd.get("name", name),
+                "description": sd.get("description", ""),
+                "usage_hint": sd.get("usage_hint", None),
+                "parameters": _extract_parameters(sd),
+            }
+        )
+    tools_list.sort(key=lambda d: d["name"])
+    return tools_list
+
+
+# ───────────────────────────
+# Render helpers
+# ───────────────────────────
+def _render_template_to_config(
+    template_path: Path | str,
+    *,
+    jinja_env: Optional[Environment] = None,
+    **kwargs: Any,
+) -> Dict[str, Any]:
+    """Render the Jinja template to YAML and parse to a top-level mapping (dict)."""
+    path = Path(template_path)
+    env = jinja_env or _JINJA_ENV
+    template = env.get_template(path.name)
+
+    # Defensive defaults so template never sees undefined
+    kw = dict(kwargs)
+    kw.setdefault("user_task", "")
+    kw.setdefault("tools", _tools_for_template())
+
+    rendered_yaml: str = template.render(**kw)
+    cfg = yaml.safe_load(rendered_yaml) or {}
+    if not isinstance(cfg, dict):
+        raise ValueError("Rendered prompts must be a YAML mapping at top level.")
+    return cfg
 
 
 def _load_section(
     section: str,
+    *,
     template_path: Path | str = AGENT_PROMPTS,
-    **kwargs,
+    jinja_env: Optional[Environment] = None,
+    **kwargs: Any,
 ) -> Dict[str, Any]:
-    """
-    Loads and renders a section of the Jinja2+YAML prompt template.
-
-    Args:
-        section (str): Section name to extract from YAML (e.g. "planner", "summarizer").
-        template_path (Path|str): Path to the Jinja2 YAML prompt template.
-        **kwargs: Variables to inject (user_task, tools, etc.).
-
-    Returns:
-        Dict[str, Any]: All key/value pairs under the given section.
-    """
-    template_dir = str(Path(template_path).parent)
-    template_name = Path(template_path).name
-
-    env = Environment(loader=FileSystemLoader(template_dir))
-    template = env.get_template(template_name)
-    rendered = template.render(**kwargs)
-    config = yaml.safe_load(rendered)
-    if section not in config:
-        raise KeyError(f"Section '{section}' not found in template file.")
-    return config[section]
+    cfg = _render_template_to_config(template_path, jinja_env=jinja_env, **kwargs)
+    if section not in cfg:
+        raise KeyError(f"Section '{section}' not found in {template_path}")
+    sec = cfg[section] or {}
+    if not isinstance(sec, dict):
+        raise ValueError(f"Section '{section}' must be a mapping.")
+    return sec
 
 
+# ───────────────────────────
+# Public loaders
+# ───────────────────────────
 def load_planner_prompts(
-    user_task: str = "",
+    *,
+    user_task: str,
     template_path: Path | str = AGENT_PROMPTS,
+    jinja_env: Optional[Environment] = None,
+    tools: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """
-    Loads the planner prompt section, auto-injecting tool registry.
-
-    Load and render the planner prompt configuration using Jinja2 and YAML.
-
-    Args:
-        template_path (Path|str): Path to the Jinja2 YAML prompt template.
-        user_task (str): The task the user is asking for; injected into
-            the prompt.
-        tools (List[Dict[str, Any]]): A list of tool definitions to inject.
-
-    Returns:
-        Dict[str, Any]: A dictionary containing:
-            - system_prompt
-            - select_single_tool_prompt
-            - select_multi_tool_prompt
-            ...
-    """
-    tool_registry = ToolRegistry()
-
-    tools_for_prompt = []
-    for name, spec in tool_registry.tools.items():
-        s = _to_dict(spec)
-        tools_for_prompt.append(
-            {
-                "name": name,
-                "description": s.get("description", ""),
-                "usage_hint": s.get("usage_hint", ""),
-                "parameters": _extract_parameters(s),
-            }
-        )
-
-    return _load_section(
-        section="planner",
-        template_path=template_path,
-        user_task=user_task,
-        tools=tools_for_prompt,
-    )
-
-
-def load_summarizer_prompt(
-    log_text: str = "",
-    user_task: str = "",
-    template_path: Path | str = AGENT_PROMPTS,
-) -> Dict[str, Any]:
-    """
-    Loads the summarizer prompt configuration from a YAML file.
-
-    Returns:
-        Dict[str, Any]: Dictionary with keys:
-            - system_prompt
-            - user_prompt
+    Loads the 'planner' section, auto‑injecting ToolRegistry metadata.
+    Ensures the template sees both 'user_task' and 'tools'.
     """
     return _load_section(
-        section="summarizer",
+        "planner",
         template_path=template_path,
-        log_text=log_text,
+        jinja_env=jinja_env,
         user_task=user_task,
-    )
-
-
-def load_evaluator_prompt(
-    task: str = "",
-    response: str = "",
-    user_task: str = "",
-    template_path: Path | str = AGENT_PROMPTS,
-) -> Dict[str, Any]:
-    """
-    Loads the evaluator prompt section.
-    """
-    return _load_section(
-        section="evaluator",
-        template_path=template_path,
-        task=task,
-        response=response,
-        user_task=user_task,
+        tools=_tools_for_template() if tools is None else tools,
     )
 
 
@@ -156,10 +196,7 @@ def load_intent_classifier_prompts(
     user_task: str = "",
     template_path: Path | str = AGENT_PROMPTS,
 ) -> Dict[str, Any]:
-    """
-    Loads the intent_classifier prompt section (for both task_decomposition
-    and describe_only).
-    """
+    """Loads the full 'intent_classifier' section."""
     return _load_section(
         section="intent_classifier",
         template_path=template_path,
@@ -171,9 +208,7 @@ def load_task_decomposition_prompt(
     user_task: str = "",
     template_path: Path | str = AGENT_PROMPTS,
 ) -> Dict[str, Any]:
-    """
-    Loads just the task_decomposition subkey from intent_classifier.
-    """
+    """Loads just the 'task_decomposition' subkey from 'intent_classifier'."""
     prompts = _load_section(
         section="intent_classifier",
         template_path=template_path,
@@ -191,9 +226,7 @@ def load_describe_only_prompt(
     user_task: str = "",
     template_path: Path | str = AGENT_PROMPTS,
 ) -> Dict[str, Any]:
-    """
-    Loads just the describe_only subkey from intent_classifier.
-    """
+    """Loads just the 'describe_only' subkey from 'intent_classifier'."""
     prompts = _load_section(
         section="intent_classifier",
         template_path=template_path,
@@ -207,11 +240,32 @@ def load_describe_only_prompt(
     return desc_only_prompts
 
 
-# # Static (global) prompt dict for classifier-only (no runtime injection needed)
-# try:
-#     PROMPTS = _load_section("intent_classifier")
-# except Exception as e:
-#     PROMPTS = {}
-#     logger.error(
-#         "[load_agent_prompts] Failed to load global intent_classifier prompts: %s", e
-#     )
+def load_summarizer_prompt(
+    *,
+    file_type: str = "code",
+    style: Optional[str] = None,
+    max_words: Optional[int] = 220,
+    outline_json: Optional[str] = None,
+    excerpts: str = "",
+    as_json: bool = False,
+    template_path: Path | str = AGENT_PROMPTS,
+    jinja_env: Optional[Environment] = None,
+) -> Dict[str, str]:
+    """
+    Render the summarizer block; returns {"system_prompt": "...", "prompt": "..."}.
+    """
+    cfg = _render_template_to_config(
+        template_path,
+        jinja_env=jinja_env,
+        file_type=file_type,
+        style=style,
+        max_words=max_words,
+        outline_json=outline_json,
+        excerpts=excerpts,
+    )
+    summ = cfg.get("summarizer", {}) or {}
+    key = "summarize_prompt_json" if as_json else "summarize_prompt_text"
+    return {
+        "system_prompt": summ.get("system_prompt", ""),
+        "prompt": summ.get(key, ""),
+    }

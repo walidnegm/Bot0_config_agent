@@ -282,6 +282,31 @@ def path_to_files(source_result: Any, **_) -> Dict[str, Any]:
     return path_to_list(source_result)
 
 
+def prompt_to_prompt(source_result: Any, **_) -> Dict[str, Any]:
+    """
+    source: preset_code_summary → target: llm_response_async
+    Accepts either a plain string or dicts that contain 'prompt' at top-level or
+        under 'result'.
+    Output: {"prompt": <str>}
+    """
+    d = _as_dict(source_result)
+    if isinstance(source_result, str):
+        return {"prompt": source_result}
+
+    # result may already be {"prompt": "..."} or contain it nested
+    if isinstance(d.get("result"), dict) and "prompt" in d["result"]:
+        return {"prompt": d["result"]["prompt"]}
+    if "prompt" in d:
+        return {"prompt": d["prompt"]}
+
+    # last-ditch: stringify everything
+    try:
+        body = json.dumps(d, ensure_ascii=False, indent=2)
+    except Exception:
+        body = str(source_result)
+    return {"prompt": body}
+
+
 def summary_to_prompt(
     source_result: Any, instruction: Optional[str] = None, **_
 ) -> Dict[str, Any]:

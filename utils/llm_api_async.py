@@ -31,7 +31,7 @@ with multiple LLM providers.
 
 # Built-in & External libraries
 import asyncio
-from typing import cast, Optional, Type, Tuple, Union
+from typing import cast, Optional, Sequence, Type, Tuple, Union
 import json
 from random import uniform
 import logging
@@ -42,7 +42,6 @@ from aiolimiter import AsyncLimiter
 # LLM imports
 from openai import AsyncOpenAI
 from anthropic import AsyncAnthropic
-from anthropic._exceptions import RateLimitError
 
 # Project level imports
 from agent_models.agent_models import (
@@ -56,7 +55,7 @@ from utils.get_llm_api_keys import (
     get_anthropic_api_key,
     get_openai_api_key,
 )
-from agent_models.llm_response_validators import (
+from utils.llm_response_validators import (
     validate_response_type,
     validate_tool_selection_or_steps,
 )
@@ -129,6 +128,7 @@ async def call_api_async(
     max_tokens: int,
     llm_provider: str,
     response_model: Optional[Type[BaseModel] | Tuple[Type[BaseModel], ...]] = None,
+    xml_tag: Optional[Union[str, Sequence[str]]] = None,
 ) -> Union[JSONResponse, CodeResponse, TextResponse, ToolCall, ToolChain]:
     """
     Unified async LLM API calling and response validation function.
@@ -155,6 +155,8 @@ async def call_api_async(
         llm_provider: The LLM provider key ("openai", "anthropic").
         response_model: (Optional) Pydantic model to validate response
             (e.g., ToolChain).
+        xml_tag (Optional[Union[str, Sequence[str]]]): Optional xml_tag for text or
+            code response, such as "result" -> parses content inside <result>...</result>.
 
     Returns:
         One of the project's structured response types (JSONResponse, CodeResponse,
@@ -234,10 +236,19 @@ async def call_api_async(
             response = await with_rate_limit_and_retry(anthropic_request, llm_provider)
             if not response or not response.content:
                 raise ValueError("Empty response received from Anthropic API")
-            first_block = response.content[0]
-            response_content = (
-                first_block.text if hasattr(first_block, "text") else str(first_block)
-            )
+
+            # * Read and concat all text blocks/Anthropic uses multi-block
+            parts = []
+            for block in response.content:
+                if hasattr(block, "text") and block.text:
+                    parts.append(block.text)
+                elif (
+                    hasattr(block, "type")
+                    and block.type == "text"
+                    and hasattr(block, "text")
+                ):
+                    parts.append(block.text)
+            response_content = "".join(parts).strip()
             if not response_content:
                 raise ValueError("Empty content in response from Anthropic API")
 
@@ -245,8 +256,11 @@ async def call_api_async(
 
         # Validation 1: response content and return structured response
         validated_response_model = validate_response_type(
-            response_content, expected_res_type
+            response_content,
+            expected_res_type,
+            xml_tag=xml_tag if expected_res_type in ("text", "code") else None,
         )
+
         logger.info(
             f"validated response content after validate_response_type: \n{validated_response_model}"
         )  # TODO: debugging; delete afterwards
@@ -295,12 +309,13 @@ async def call_api_async(
 async def call_openai_api_async(
     prompt: str,
     model_id: str = GPT_4_1_MINI,  # default to 4.1 mini
-    expected_res_type: str = "str",
+    expected_res_type: str = "text",
     # json_type: str = "tool_selection",  # default to tool_selection for now
     temperature: float = 0.4,
     max_tokens: int = 1056,
     client: Optional[AsyncOpenAI] = None,  # Default to global client
     response_model: Optional[Type[BaseModel]] = None,
+    xml_tag: Optional[Union[str, Sequence[str]]] = None,
 ) -> Union[JSONResponse, TextResponse, CodeResponse, ToolCall, ToolChain]:
     """
     Asynchronous convenience wrapper for calling the OpenAI Chat Completions API.
@@ -313,17 +328,25 @@ async def call_openai_api_async(
 
     Args:
         prompt: The user/system prompt to send to the LLM.
-        model_id: Model identifier (e.g., "gpt-4-turbo", "gpt-4o"). Defaults to GPT_4_1_MINI.
-        expected_res_type: Expected output type ("json", "str", "code", etc.). Defaults to "str".
-        json_type: The JSON submodel for validation, if applicable (e.g., "tool_selection").
+        model_id: Model identifier (e.g., "gpt-4-turbo", "gpt-4o").
+            Defaults to GPT_4_1_MINI.
+        expected_res_type: Expected output type ("json", "str", "code", etc.).
+            Defaults to "text".
+        json_type: The JSON submodel for validation, if applicable (e.g.,
+            "tool_selection").
         temperature: Sampling temperature for the LLM. Defaults to 0.4.
         max_tokens: Maximum tokens to generate. Defaults to 1056.
-        client: Optional AsyncOpenAI client instance. If not provided, uses the global client.
-        response_model (Type[BaseModel], optional): Pydantic model to validate output.
+        client: Optional AsyncOpenAI client instance. If not provided, uses
+            the global client.
+        response_model (Type[BaseModel], optional): Pydantic model to validate
+            output.
+        xml_tag (Optional[Union[str, Sequence[str]]]): Optional xml_tag for text or
+            code response, such as "result" -> parses content inside <result>...</result>.
 
     Returns:
-        A validated, structured response model (JSONResponse, TextResponse, CodeResponse,
-        ToolCall, or ToolChain), depending on the prompt and output format.
+        A validated, structured response model (JSONResponse, TextResponse,
+            CodeResponse, ToolCall, or ToolChain), depending on the prompt and
+            output format.
 
     Raises:
         ValueError: For invalid or failed responses.
@@ -347,6 +370,7 @@ async def call_openai_api_async(
         max_tokens=max_tokens,
         llm_provider=OPENAI,
         response_model=response_model,
+        xml_tag=xml_tag,
     )
 
 
@@ -354,12 +378,13 @@ async def call_openai_api_async(
 async def call_anthropic_api_async(
     prompt: str,
     model_id: str = CLAUDE_HAIKU,  # default to haiku (cheapest model)
-    expected_res_type: str = "str",
+    expected_res_type: str = "text",
     # json_type: str = "tool_selection",
     temperature: float = 0.4,
     max_tokens: int = 1056,
     client: Optional[AsyncAnthropic] = None,
     response_model: Optional[Type[BaseModel]] = None,
+    xml_tag: Optional[Union[str, Sequence[str]]] = None,
 ) -> Union[JSONResponse, TextResponse, CodeResponse, ToolCall, ToolChain]:
     """
     Asynchronous convenience wrapper for calling the Anthropic Messages API.
@@ -374,12 +399,14 @@ async def call_anthropic_api_async(
         prompt: The user/system prompt to send to the LLM.
         model_id: Model identifier (e.g., "claude-3-haiku", "claude-3-opus").
             Defaults to CLAUDE_HAIKU.
-        expected_res_type: Expected output type ("json", "str", "code", etc.). Defaults to "str".
+        expected_res_type: Expected output type ("json", "str", "code", etc.). Defaults to "text".
         json_type: The JSON submodel for validation, if applicable (e.g., "tool_selection").
         temperature: Sampling temperature for the LLM. Defaults to 0.4.
         max_tokens: Maximum tokens to generate. Defaults to 1056.
         client: Optional AsyncAnthropic client instance. If not provided, uses the global client.
         response_model (Type[BaseModel], optional): Pydantic model to validate output.
+        xml_tag (Optional[Union[str, Sequence[str]]]): Optional xml_tag for text or
+            code response, such as "result" -> parses content inside <result>...</result>.
 
     Returns:
         A validated, structured response model (JSONResponse, TextResponse, CodeResponse,
@@ -405,4 +432,5 @@ async def call_anthropic_api_async(
         max_tokens=max_tokens,
         llm_provider=ANTHROPIC,
         response_model=response_model,
+        xml_tag=xml_tag,
     )

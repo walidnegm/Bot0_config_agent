@@ -4,7 +4,8 @@ agent/intent_classifier.py
 Intent classification utilities for agent task routing and decomposition.
 
 This module provides async classifier functions for agent pipelines:
-- Classifies whether a user instruction is a project description request or a more complex task.
+- Classifies whether a user instruction is a project description request or
+a more complex task.
 - Distinguishes between single-step and multi-step tasks to drive planner logic.
 
 Example Usage:
@@ -35,6 +36,7 @@ Example Usage:
 from typing import TYPE_CHECKING
 import json
 import logging
+from typing import Optional, Sequence, Union
 from agent_models.agent_models import TextResponse
 from prompts.load_agent_prompts import (
     load_describe_only_prompt,
@@ -101,6 +103,7 @@ async def classify_describe_only_async(
 async def classify_task_decomposition_async(
     instruction: str,
     planner: "Planner",
+    xml_tag: Optional[Union[str, Sequence[str]]] = "result",
 ) -> str:
     """
     Classify if the instruction should be handled in a single step or needs
@@ -109,6 +112,9 @@ async def classify_task_decomposition_async(
     Args:
         instruction (str): The user instruction.
         planner (Planner): An instance of Planner with dispatch_llm_async.
+        xml_tag (Optional[Union[str, Sequence[str]]]): Optional xml_tag for text or
+            code response, such as "result" -> parses content inside <result>...</result>.
+            Default to "result".
 
     Returns:
         str: "single-step", "multi-step", or "unknown"/"error".
@@ -131,6 +137,7 @@ async def classify_task_decomposition_async(
             system_prompt="",  # Not needed; included in template
             response_type="text",
             response_model=TextResponse,
+            xml_tag=xml_tag,
         )
 
         result = getattr(result_obj, "text", None) or str(result_obj)

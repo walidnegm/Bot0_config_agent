@@ -32,6 +32,9 @@ python agent/cli.py --api-model claude-3-haiku-20240307 --once "summarize projec
 python -m agent.cli --api-model gpt-4.1-mini --once "where are my config files?"
 python -m agent.cli --api-model claude-sonnet-4-20250514 --once "First find all config files in the project (excluding venv, models, etc.), then summarize each."
 python -m agent.cli --api-model gpt-4.1-mini --once "list all files in the ./agent directory and read the first 3 files."
+python -m agent.cli --local-model lfm2_1_2b --once "list all files in the ./agent directory and summarize them."
+python -m agent.cli --local-model phi_3_5_mini_awq --once "list all files in the ./agent directory and summarize them."
+
 
 # Show all available models and their descriptions:
 python agent/cli.py --show-models-help

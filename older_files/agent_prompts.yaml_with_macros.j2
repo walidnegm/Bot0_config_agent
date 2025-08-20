@@ -151,6 +151,9 @@ planner:
     {{user_prompt}}
 
 summarizer:
+  # =========================================================
+  # System prompt (stable across file types & outputs)
+  # =========================================================
   system_prompt: |
     You are a precise technical summarizer.
     - Be concise but complete.
@@ -160,15 +163,98 @@ summarizer:
     - If information is missing, say so explicitly.
 
   # =========================================================
+  # Macros: rubrics by content type
+  #   Usage: {{ summarizer.rubric(file_type) }}
+  #   file_type ∈ {"code","config","docs","logs"}
+  # =========================================================
+  rubrics: |
+    {% macro rubric(file_type) -%}
+      {%- if file_type == "code" -%}
+        Summarize the code module(s) with:
+        - Purpose & architecture (how pieces fit).
+        - Public API (classes/functions) with 1‑line roles.
+        - External deps/imports and runtime targets.
+        - I/O & side effects (files, network, env).
+        - Error handling patterns; notable exceptions.
+        - Concurrency (async/threads/subprocess) and caveats.
+        - Security notes (eval/exec, shell=True, deserialization).
+        - Entrypoints (CLI, __main__, handlers) and example usage.
+        - Hotspots (large/complex functions).
+      {%- elif file_type == "config" -%}
+        Summarize the configuration with:
+        - Purpose & key sections.
+        - Required vs optional fields, defaults.
+        - Sensitive/secret-like keys (redacted).
+        - Environment overrides and include/reference behavior.
+        - Risky settings, safe defaults, and compatibility notes.
+      {%- elif file_type == "docs" -%}
+        Summarize the docs with:
+        - Purpose & audience.
+        - Quickstart/setup steps.
+        - Key features/components.
+        - Configuration knobs.
+        - Limitations/known issues; links/sections to read next.
+      {%- elif file_type == "logs" -%}
+        Summarize the logs with:
+        - Time window & scope.
+        - Top errors/warnings (grouped), representative messages.
+        - Performance stats/trends (latency, throughput, memory).
+        - Probable root causes & impacted components.
+        - Next actions & tests to run.
+      {%- else -%}
+        Provide a concise technical summary highlighting purpose, structure, and key elements.
+      {%- endif -%}
+    {%- endmacro %}
+
+  # =========================================================
+  # Macros: output format guards
+  #   text: free text with optional max_words
+  #   json: strict JSON schema (for validators)
+  # =========================================================
+  formats: |
+    {% macro text(max_words=None, style=None) -%}
+      Output format:
+      - Use short paragraphs and bullets.
+      - Keep sentences tight; avoid fluff.
+      {%- if style %} Style hint: {{ style }}.{% endif -%}
+      {%- if max_words %} Cap at ~{{ max_words }} words.{% endif -%}
+    {%- endmacro %}
+
+    {% macro json() -%}
+      Your ONLY output must be a single valid JSON object (no prose).
+      Schema:
+      {
+        "purpose": "string",
+        "highlights": ["string", "..."],           // bullets
+        "key_entities": [{"name":"str","type":"str","role":"str"}],
+        "deps": ["string", "..."],                 // packages/imports or external refs
+        "io_side_effects": ["string", "..."],
+        "security_notes": ["string", "..."],
+        "entrypoints": ["string", "..."],
+        "hotspots": ["string", "..."],             // complex/large areas
+        "risks_todos": ["string", "..."]
+      }
+      - Omit fields that do not apply rather than inventing content.
+      - Redact secrets (show key name only).
+    {%- endmacro %}
+
+  # =========================================================
   # TEXT summary prompt
+  # Inputs you can pass:
+  #   file_type: "code"|"config"|"docs"|"logs" (default: "code")
+  #   style: optional style hint (e.g., "bullet points")
+  #   max_words: integer limit (e.g., 220)
+  #   outline_json: prepass outline (AST, key lists, headings) — optional
+  #   excerpts: joined snippets or stitched file sketches — required
   # =========================================================
   summarize_prompt_text: |
-    Summarize the following {{ file_type|default("code") }} file clearly and concisely.
-    Focus on purpose, key components, and usage.
-    Do not invent details beyond what is shown.
+    {# Defaults #}
+    {% set _file_type = file_type|default("code") %}
+    {% set _style     = style|default(None) %}
+    {% set _max_words = max_words|default(220) %}
 
-    Output in at most {{ max_words|default(220) }} words.
-    {% if style %}Style preference: {{ style }}{% endif %}
+    {{ summarizer.rubrics | fromyaml | attr('rubric')(_file_type) }}
+    {{ summarizer.formats  | fromyaml | attr('text')(_max_words, _style) }}
 
     {% if outline_json %}
     === OUTLINE (JSON) ===
@@ -180,17 +266,12 @@ summarizer:
 
   # =========================================================
   # JSON summary prompt (strict schema)
+  # Same inputs as above. Use when expected_res_type="json".
   # =========================================================
   summarize_prompt_json: |
-    Summarize the following {{ file_type|default("code") }} file in structured JSON.
-
-    Schema:
-    {
-      "purpose": "Short string explaining main purpose",
-      "components": ["List of key classes, functions, or config items"],
-      "usage": "Short string about usage or flow",
-      "notes": "Optional caveats or missing info"
-    }
+    {% set _file_type = file_type|default("code") %}
+    {{ summarizer.rubrics | fromyaml | attr('rubric')(_file_type) }}
+    {{ summarizer.formats  | fromyaml | attr('json')() }}
 
     {% if outline_json %}
     === OUTLINE (JSON) ===

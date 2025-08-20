@@ -10,7 +10,7 @@ single vs multi-step planning, and plan validation.
 
 import re
 import logging
-from typing import Optional, Union, Type, Literal
+from typing import Optional, Sequence, Union, Type, Literal
 import json
 import asyncio
 from pydantic import BaseModel
@@ -110,6 +110,7 @@ class Planner:
         system_prompt: str,
         response_type: Literal["json", "text", "code"],
         response_model: Type[BaseModel],  # Default to text to be safe
+        xml_tag: Optional[Union[str, Sequence[str]]] = None,
     ) -> Union[
         JSONResponse,
         TextResponse,
@@ -126,8 +127,8 @@ class Planner:
             system_prompt (str): System prompt template (required by LOCAL LLMs).
             response_type (str, optional): Desired response format (e.g., "text", "json",
                 "code"). Defaults to "text".
-            **kwargs: Additional keyword arguments for the LLM call (e.g., temperature,
-                max_tokens, response_model).
+            xml_tag (Optional[Union[str, Sequence[str]]]): Optional xml_tag for text or
+                code response, such as "result" -> parses content inside <result>...</result>.
 
         Returns:
             Union[dict, JSONResponse, TextResponse, CodeResponse, ToolCall, ToolChain]:
@@ -152,6 +153,7 @@ class Planner:
                 prompt=full_prompt,
                 expected_res_type=response_type,
                 response_model=response_model,
+                xml_tag=xml_tag,
             )
             return result  # return pydantic model
 
@@ -166,6 +168,7 @@ class Planner:
                     system_prompt=system_prompt,
                     expected_res_type=response_type,
                     response_model=response_model,
+                    xml_tag=xml_tag,
                 ),
             )
             return result  # return pydantic model
@@ -294,6 +297,7 @@ class Planner:
         prompt: str,
         expected_res_type: Literal["json", "text", "code"] = "text",
         response_model: Optional[Type[BaseModel]] = TextResponse,
+        xml_tag: Optional[Union[str, Sequence[str]]] = None,
     ) -> Union[
         JSONResponse,
         TextResponse,
@@ -308,11 +312,14 @@ class Planner:
         and return the response.
 
         Args:
+            prompt (str): combine system and user prompt.
             expected_res_type (Literal["json", "text", "code"], optional): Desired response format.
                 Defaults to "text".
             response_model (Type[BaseModel], optional): Pydantic model used to validate and parse
                 the LLM's output.
                 Defaults to TextResponse.
+            xml_tag (Optional[Union[str, Sequence[str]]]): Optional xml_tag for text or
+                code response, such as "result" -> parses content inside <result>...</result>.
         Returns:
             Union[JSONResponse, TabularResponse, TextResponse, CodeResponse, EditingResponseModel,
             JobSiteResponseModel]:
@@ -342,6 +349,7 @@ class Planner:
                 temperature=temperature,
                 max_tokens=max_tokens,
                 response_model=response_model,
+                xml_tag=xml_tag,
                 # client=client,  # todo: commented out for now, but it's good to instantiate early for cloud APIs
             )
         elif llm_provider.lower() == "anthropic":
@@ -352,6 +360,7 @@ class Planner:
                 temperature=temperature,
                 max_tokens=max_tokens,
                 response_model=response_model,
+                xml_tag=xml_tag,
                 # client=self.client, # todo: commented out for now, but it's good to instantiate early for cloud APIs
             )
         else:
@@ -365,6 +374,7 @@ class Planner:
         system_prompt: Optional[str] = None,
         expected_res_type: Literal["json", "text", "code"] = "text",
         response_model: Type[BaseModel] = TextResponse,
+        xml_tag: Optional[Union[str, Sequence[str]]] = None,
     ) -> TextResponse | CodeResponse | JSONResponse | ToolCall | ToolChain:
         """
         Calls the local LLM with the provided prompt, using the specified response type and
@@ -375,16 +385,22 @@ class Planner:
 
         Args:
             user_prompt (str): The user prompt (may include template expansion).
-            system_prompt (Optional[str]): System prompt for the LLM (required by most local models).
-            expected_res_type (Literal["json", "text", "code"], optional): Desired response format.
+            system_prompt (Optional[str]): System prompt for the LLM
+                (required by most local models).
+            expected_res_type (Literal["json", "text", "code"], optional):
+                Desired response format.
                 Defaults to "text".
-            response_model (Type[BaseModel], optional): Pydantic model used to validate and parse
-                the LLM's output.
+            response_model (Type[BaseModel], optional): Pydantic model used to validate
+                and parse the LLM's output.
                 Defaults to TextResponse.
+            xml_tag (Optional[Union[str, Sequence[str]]]): Optional xml_tag for text or
+                code response, such as "result" -> parses content inside
+                <result>...</result>.
 
         Returns:
             TextResponse | CodeResponse | JSONResponse | ToolCall | ToolChain:
-                The validated output as a Pydantic model, matching the specified response_model.
+                The validated output as a Pydantic model, matching the specified
+                    response_model.
 
         Notes:
             - The actual return type depends on response_model and LLM output.
@@ -400,6 +416,7 @@ class Planner:
             system_prompt=system_prompt,
             expected_res_type=expected_res_type,
             response_model=response_model,
+            xml_tag=xml_tag,
         )
 
         return validated_result  # Return pydantic model

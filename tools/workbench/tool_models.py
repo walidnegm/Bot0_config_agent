@@ -237,6 +237,34 @@ class CheckCudaResult(ToolOutput):
 
 
 # =============================================================================
+# preset_code_summary
+# =============================================================================
+
+
+class CodePresetInput(BaseModel):
+    """
+    Input for preset_code_summary. Usually comes directly from read_files output.
+    """
+
+    files: List[FileContent]  # reuse existing model
+    task: Literal["summarize", "review", "document"] = "summarize"
+    max_chars: Optional[int] = 8000
+    style: Optional[str] = None
+    include_metadata: bool = True
+
+
+class CodePresetPayload(BaseModel):
+    prompt: str
+    meta: Optional[Dict[str, Any]] = None
+
+
+class CodePresetResult(ToolOutput):
+    """Output envelope; result contains the LLM-ready 'prompt' (and optional meta)."""
+
+    result: Optional[CodePresetPayload | Dict[str, Any] | str] = None
+
+
+# =============================================================================
 # echo_message
 # =============================================================================
 

@@ -48,7 +48,7 @@ Example Usage:
 
 import logging
 from pathlib import Path
-from typing import Optional, Literal, Dict, Any, Union, Type, Tuple
+from typing import Optional, Literal, Dict, Any, Sequence, Union, Type, Tuple
 import re
 import json
 import gc
@@ -73,7 +73,7 @@ from agent_models.agent_models import (
     ToolCall,
     ToolChain,
 )
-from agent_models.llm_response_validators import (
+from utils.llm_response_validators import (
     validate_response_type,
     validate_tool_selection_or_steps,
 )
@@ -111,8 +111,6 @@ def get_llm_manager(model_name):
 
 
 def _map_dtype(s: str | None):
-    import torch
-
     if not s:
         return None
     s = s.lower()
@@ -186,6 +184,7 @@ class LLMManager:
         system_prompt: Optional[str] = None,
         expected_res_type: Literal["json", "text", "code"] = "text",
         response_model: Optional[Type[BaseModel] | Tuple[Type[BaseModel], ...]] = None,
+        xml_tag: Optional[Union[str, Sequence[str]]] = None,
     ) -> Union[JSONResponse, TextResponse, CodeResponse, ToolCall, ToolChain]:
         """
         Generate a response using the loaded model. Expects output can be a JSON
@@ -193,6 +192,15 @@ class LLMManager:
 
         Delegates to engine-specific _generate_with_*() method.
         The engine is responsible for handling output formatting (e.g., JSON parsing).
+
+        Args:
+            user_prompt: The user or system prompt to send to the model.
+            system_prompt: The system prompt to send to the model (role, behavior, etc.)
+            expected_res_type: The desired output type ("json", "text", "code", etc.).
+            response_model: (Optional) Pydantic model to validate response
+                (e.g., ToolChain).
+            xml_tag (Optional[Union[str, Sequence[str]]]): Optional xml_tag for text or
+                code response, such as "result" -> parses content inside <result>...</result>.
         """
         assert (
             self.model is not None and self.tokenizer is not None
@@ -274,18 +282,12 @@ class LLMManager:
 
             # * Critical logging to examine main output
             logger.info("[LLMManager] 🧪 Generated text (raw):\n%s", response)
-            # logger.info(
-            #     "[LLMManager] 🧪 Generated text (pretty):\n%s",
-            #     (
-            #         json.dumps(json.loads(response), indent=2, ensure_ascii=False)
-            #         if isinstance(response, str)
-            #         and response.strip().startswith(("[", "{"))
-            #         else response
-            #     ),
-            # )
 
             # Validation 1: response_type (code, text, json)
-            validated_response = validate_response_type(response, expected_res_type)
+            # (& xml_tag if it's text or code)
+            validated_response = validate_response_type(
+                response, expected_res_type, xml_tag=xml_tag
+            )
 
             # Handle JSON responses that may be ToolCall or ToolChain
             if isinstance(validated_response, JSONResponse):
