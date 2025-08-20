@@ -19,9 +19,9 @@ beautifulsoup4==4.13.4
 black==25.1.0
 bleach==6.2.0
 -e file:///home/xzhang/dev/Bot0_config_agent
-certifi==2025.7.9
+certifi==2025.8.3
 cffi==1.17.1
-charset-normalizer==3.4.2
+charset-normalizer==3.4.3
 click==8.2.1
 click-default-group==1.2.4
 comm==0.2.3
@@ -36,16 +36,16 @@ distro==1.9.0
 executing==2.2.0
 faiss-cpu==1.11.0
 fastjsonschema==2.21.1
-filelock==3.18.0
+filelock==3.19.1
 fqdn==1.5.1
 frozenlist==1.7.0
-fsspec==2025.5.1
+fsspec==2025.7.0
 gptqmodel==2.2.0
 h11==0.16.0
-hf-xet==1.1.5
+hf-xet==1.1.7
 httpcore==1.0.9
 httpx==0.28.1
-huggingface-hub==0.33.4
+huggingface-hub==0.34.4
 humanize==4.12.3
 idna==3.10
 iniconfig==2.1.0
@@ -93,7 +93,7 @@ nest-asyncio==1.6.0
 networkx==3.5
 notebook==7.4.4
 notebook-shim==0.2.4
-numpy==2.3.1
+numpy==2.3.2
 nvidia-cublas-cu12==12.6.4.1
 nvidia-cuda-cupti-cu12==12.6.80
 nvidia-cuda-nvrtc-cu12==12.6.77
@@ -144,13 +144,13 @@ pytz==2025.2
 pyyaml==6.0.2
 pyzmq==27.0.0
 referencing==0.36.2
-regex==2024.11.6
+regex==2025.7.34
 requests==2.32.4
 rfc3339-validator==0.1.4
 rfc3986-validator==0.1.1
 rfc3987-syntax==1.1.0
 rpds-py==0.26.0
-safetensors==0.5.3
+safetensors==0.6.2
 scikit-learn==1.7.0
 scipy==1.16.0
 send2trash==1.8.3
@@ -168,7 +168,7 @@ terminado==0.18.1
 threadpoolctl==3.6.0
 tinycss2==1.4.0
 tokenicer==0.0.4
-tokenizers==0.21.2
+tokenizers==0.21.4
 tomlkit==0.13.3
 torch==2.7.1
 torchaudio==2.7.1
@@ -176,7 +176,7 @@ torchvision==0.22.1
 tornado==6.5.1
 tqdm==4.67.1
 traitlets==5.14.3
-transformers==4.53.2
+transformers==4.55.2
 triton==3.3.1
 types-python-dateutil==2.9.0.20250708
 typing-extensions==4.14.1

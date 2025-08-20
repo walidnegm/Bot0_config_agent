@@ -42,17 +42,88 @@ python downloadllama.py
 
 ---
 
-### 4. **Run the CLI**
+### 4. 🖥️ **Running the Agent CLI**
 
-Change to your project directory and run example commands:
+---
+You can run the agent either with a **local model** or an **API/cloud model**.
+Exactly one of `--local-model` or `--api-model` must be specified.
+
+---
+
+### 🔹 Simple Single-Step Tasks
 
 ```bash
-cd ~/../Bot0_config_agent
+# Local LLM (DeepSeek, GPTQ)
+python -m agent.cli --local-model deepseek_coder_1_3b_gptq --once "list all files in the ./agent directory and read the first file."
 
-
-
-python -m agent.cli --api-model gpt-4.1-mini --once "list all files in the ./agent directory and summarize the first two files."
+# OpenAI API
+python -m agent.cli --api-model gpt-4.1-mini --once "list all files in the ./agent directory and read the first file."
 ```
+
+---
+
+#### 🔹 Multi-Step / More Complex Tasks
+
+```bash
+# Summarize entire project config with Claude
+python agent/cli.py --api-model claude-3-haiku-20240307 --once "summarize project config"
+
+# Ask about config file locations
+python -m agent.cli --api-model gpt-4.1-mini --once "where are my config files?"
+
+# Complex: find + summarize config files (exclude venv, models, etc.)
+python -m agent.cli --api-model claude-sonnet-4-20250514 --once "First find all config files in the project (excluding venv, models, etc.), then summarize each."
+
+# Read multiple files in ./agent
+python -m agent.cli --api-model gpt-4.1-mini --once "list all files in the ./agent directory and read the first 3 files."
+```
+
+---
+
+#### 🔹 Local Model Summarization Examples
+
+```bash
+# Local LFM2 model
+python -m agent.cli --local-model lfm2_1_2b --once "list all files in the ./agent directory and summarize them."
+
+# Local Phi-3.5 AWQ model
+python -m agent.cli --local-model phi_3_5_mini_awq --once "list all files in the ./agent directory and summarize them."
+```
+
+---
+
+#### 🔹 Filtering & Summarization
+
+```bash
+# Exclude common junk files/folders
+python -m agent.cli --api-model gpt-4.1-mini --once "List all files in the ./agent directory excluding __pycache__, .git, and venv."
+
+# Exclude junk, then summarize
+python -m agent.cli --api-model gpt-4.1-mini --once "List all files in the ./agent directory excluding __pycache__, .git, and venv, then summarize their contents."
+```
+
+---
+
+### 🔹 Utilities
+
+```bash
+# Show all available models and descriptions
+python agent/cli.py --show-models-help
+```
+
+---
+
+✅ **Notes:**
+
+* Use `--once` for single-shot runs.
+* For interactive usage, you can run without `--once` and the agent will keep accepting instructions.
+* Local models require that you’ve already downloaded and configured them (see [models setup](./docs/models.md)).
+* API models require your provider API keys (OpenAI, Anthropic, etc.) to be set in `.env`.
+
+---
+
+Would you like me to also draft a **separate "Quickstart Section"** (with 3 copy-paste examples: one local, one API, one multi-step) so users don’t get overwhelmed by the full list? That way the README has both a short path and a full catalog.
+
 
 ---
 
