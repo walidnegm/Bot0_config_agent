@@ -1,3 +1,44 @@
+# About 
+Overview
+Bot0 Config Agent is a CLI-driven system that uses large language models (LLMs) to plan and execute tool calls for project analysis. A typical run flows from the CLI through an agent core, which consults the planner to produce a tool plan, executes each step, and returns the results.
+
+General Structure
+agent/ – Orchestrates the workflow. AgentCore wires the tool registry, planner, and executor; handle_instruction generates a plan and runs it via the tool chain executor. The Planner supports both local and cloud models and performs intent classification and task decomposition before creating a validated ToolChain.
+
+tools/ – Houses individual tool functions and the ToolRegistry, which loads definitions from tool_registry.json, validates them, and returns callable wrappers for execution.
+
+prompts/ – Jinja2/YAML templates and loaders. load_agent_prompts.py injects registry-derived tool metadata into prompt sections so LLMs know which tools are available.
+
+configs/ – Global configuration, including enumerated API model names and path helpers.
+
+utils/ – Helpers such as asynchronous LLM API clients with built-in rate limiting and retry logic.
+
+agent_models/ – Pydantic schemas for plans, tool results, and step states.
+
+loaders/ – Model configuration utilities for local inference backends.
+
+tests/ – Example pytest suite verifying that prompts render correctly.
+
+Key Concepts to Know
+Tool Standardization – Each tool returns a dict with status, message, and optional result. The planner and executor rely on this shape to track step status.
+
+Prompt Injection – Tool metadata is auto-inserted into planner prompts, so any new tool must be registered for the planner to discover it.
+
+Model Flexibility – The planner and tool registry allow either local models (via LLMManager) or cloud APIs (OpenAI, Anthropic, etc.).
+
+Asynchronous Execution – Calls to external LLM APIs are async to handle rate limits and retries gracefully.
+
+Pointers for What to Learn Next
+Adding Tools – Implement a Python function in tools/, register it in tools/tool_registry.json, and test via the CLI; the README provides a step-by-step guide.
+
+Prompts & Planning – Explore prompts/agent_prompts.yaml.j2 and load_agent_prompts.py to understand how planning templates are built and how tool definitions are inserted.
+
+Local Model Management – Study agent/llm_manager.py and loaders/model_configs_models.py to learn how local models (GPTQ, AWQ, GGUF, transformers) are configured and invoked.
+
+Testing & Extensibility – Review tests/unit_test_loading_prompts.py for an example of validating prompt rendering, then consider adding tests for new tools or planner logic.
+
+Config Exploration – Examine configs/api_models.py for available API options and models.yaml (referenced in configs/paths.py) to define local model settings.
+
 # Bot0 Config Agent
 
 ## 🚀 Quick Start
