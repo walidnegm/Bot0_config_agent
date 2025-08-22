@@ -12,7 +12,7 @@ from jinja2 import Environment, FileSystemLoader
 import yaml
 from configs.paths import AGENT_PROMPTS
 from tools.tool_registry import ToolRegistry
-
+from typing import Any, Dict, List
 logger = logging.getLogger(__name__)
 
 

@@ -2,16 +2,16 @@
 
 import os
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, List
 from pathlib import Path
-from utils.find_root_dir import find_project_root
-from agent_models.step_status import StepStatus
 
+from utils.find_root_dir import find_project_root
+from tools.tool_models import ListProjectFilesOutput
+from agent_models.step_status import StepStatus
 
 logger = logging.getLogger(__name__)
 
-
-def normalize_extension(ext):
+def normalize_extension(ext: str) -> str:
     # Handles .py, py, *.py, *py, etc → .py
     ext = ext.strip()
     if ext.startswith("*."):
@@ -20,8 +20,7 @@ def normalize_extension(ext):
         ext = "." + ext.lstrip(".")
     return ext
 
-
-def list_project_files(**kwargs) -> Dict[str, Any]:
+def list_project_files(**kwargs) -> ListProjectFilesOutput:
     """
     Recursively scans a project directory for files matching given criteria,
     with efficient directory pruning and file-type exclusion using os.walk.
@@ -37,19 +36,13 @@ def list_project_files(**kwargs) -> Dict[str, Any]:
         include_file (list of str, optional): Alternate key for 'include'.
 
     Returns:
-        dict: {
-            "status": "success" or "error",
-            "files": List[str],  # List of file paths as strings
-            "message": str       # Summary of results or error message
-        }
-
-    Notes:
-        - Excluded directories are never traversed (efficient pruning).
-        - Only files whose suffix matches an entry in 'include' are considered.
-        - Only files <= 10,000 bytes are included in the result.
+        ListProjectFilesOutput:
+            - status: success | error
+            - message: summary string
+            - result: List[str] (file paths)
     """
     # Prepare include filter (always with a leading '.')
-    include = [
+    include: List[str] = [
         normalize_extension(ext)
         for ext in (
             kwargs.get("include")
@@ -74,17 +67,20 @@ def list_project_files(**kwargs) -> Dict[str, Any]:
     exclude |= MINIMUM_EXCLUDE
 
     root = kwargs.get("root") or find_project_root()
+    if not kwargs.get("root"):
+        logger.warning("[list_project_files] No 'root' specified; defaulting to project root. Ensure planner sets 'root' for subdirectory-specific tasks.")
     if isinstance(root, str):
         root = Path(root)
     if not root.exists():
-        return {
-            "status": StepStatus.ERROR,
-            "message": f"Directory '{root}' does not exist.",
-        }
+        return ListProjectFilesOutput(
+            status=StepStatus.ERROR,
+            message=f"Directory '{root}' does not exist.",
+            result=None,
+        )
 
     logger.info(f"[list_project_files] 🔍 Scanning directory: {root}")
 
-    file_paths = []
+    file_paths: List[str] = []
     for dirpath, dirnames, filenames in os.walk(root):
         # Prune excluded directories in-place (most efficient way)
         before = set(dirnames)
@@ -104,8 +100,8 @@ def list_project_files(**kwargs) -> Dict[str, Any]:
                     continue
 
     logger.info(f"Found {len(file_paths)} files under {root}.")
-    return {
-        "status": "success",
-        "files": file_paths,
-        "message": f"Found {len(file_paths)} file(s) under '{root}'",
-    }
+    return ListProjectFilesOutput(
+        status=StepStatus.SUCCESS,
+        message=f"Found {len(file_paths)} file(s) under '{root}'",
+        result=file_paths
+    )

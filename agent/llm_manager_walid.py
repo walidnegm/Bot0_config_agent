@@ -1,282 +1,290 @@
-from typing import Optional
-import torch
+"""
+agent/llm_manager.py
+Unified manager for calling LLMs (local or API).
+- Local: Uses transformers or llama_cpp_python, with config from configs/model_configs.yaml
+- API: Uses OpenAIAdapter for API-backed models (OpenAI, Gemini, etc.)
+"""
+
+import logging
+import os
 from pathlib import Path
-from transformers import AutoTokenizer, AutoModelForCausalLM
-from huggingface_hub import snapshot_download, scan_cache_dir
-import json
-import re
-from llama_cpp import Llama
+from typing import Any, Dict, List, Optional, Tuple
 
+from pydantic import BaseModel
+from configs.paths import MODEL_CONFIGS_YAML_FILE
+from configs.api_models import get_llm_provider, validate_api_model_name
+from agent.llm_openai import OpenAIAdapter
+import torch
 
-def get_model_config_from_config() -> dict:
-    config_path = Path(__file__).parent.parent / ".llm_config.json"
-    try:
-        with open(config_path, "r") as f:
-            config = json.load(f)
-            if "model_id" not in config:
-                raise ValueError("Missing 'model_id' in config.")
-            return config
-    except Exception as e:
-        raise FileNotFoundError(f"Failed to read model config: {e}")
+logger = logging.getLogger(__name__)
 
-
-def check_model_in_cache(model_id: str) -> bool:
-    """Check if model is in Hugging Face cache, download if missing."""
-    is_repo_id = "/" in model_id and not Path(model_id).is_absolute()
-    repo_id = model_id if is_repo_id else None
-
-    if is_repo_id:
-        cache_info = scan_cache_dir()
-        for repo in cache_info.repos:
-            if repo.repo_id == model_id and repo.size_on_disk > 0:
-                print(
-                    f"[LLMManager] ✅ Found {model_id} in cache (size: {repo.size_on_disk / 1e9:.2f} GB)"
-                )
-                return True
-        print(f"[LLMManager] ⚠️ Model {model_id} not found in cache. Downloading...")
-        try:
-            snapshot_download(
-                repo_id=model_id,
-                allow_patterns=["*.bin", "*.safetensors", "*.json", "*.txt"],
-            )
-            print(f"[LLMManager] ✅ Downloaded {model_id} to cache")
-            return True
-        except Exception as e:
-            print(f"[LLMManager] ❌ Failed to download {model_id}: {e}")
-            return False
-    else:
-        if Path(model_id).exists():
-            print(f"[LLMManager] ✅ Found local model at {model_id}")
-            return True
-        print(f"[LLMManager] ❌ Local model path {model_id} does not exist")
-        return False
-
+class LLMInitConfig(BaseModel):
+    name: str
+    loader: str
+    hf_model: Optional[str] = None
+    device: Optional[str] = None
+    dtype: Optional[str] = None
+    trust_remote_code: bool = True
+    api_model: Optional[str] = None
 
 class LLMManager:
-    def __init__(self, use_openai: bool = False):
-        self.use_openai = use_openai
-        self.loader = None
-        self.device = None
-        self.is_lfm2 = False
+    def __init__(self, local_model: Optional[str] = None, api_model: Optional[str] = None):
+        """
+        Initialize LLMManager for either a local or API model.
 
-        if self.use_openai:
-            print("[LLMManager] ⚠️ Skipping local model load — using OpenAI backend.")
-            self.tokenizer = None
-            self.model = None
-            return
+        Args:
+            local_model (Optional[str]): Name of local LLM model (from configs/model_configs.yaml).
+            api_model (Optional[str]): Name of API model (e.g., gpt-4o, gemini-1.5-pro).
 
-        try:
-            print("[LLMManager] 🔍 Locating local model…")
+        Raises:
+            ValueError: If both or neither model is specified, or if the local model config is invalid.
+            ImportError: If required dependencies are missing.
+        """
+        if (local_model and api_model) or (not local_model and not api_model):
+            raise ValueError("Exactly one of local_model or api_model must be specified.")
 
-            config = get_model_config_from_config()
-            model_id = config["model_id"]
-            self.loader = config.get("loader", "auto").lower()
-            device = config.get("device", "auto")
-            torch_dtype = config.get("torch_dtype", "float16")
-            use_safetensors = config.get("use_safetensors", False)
+        self.local_model = local_model
+        self.api_model = api_model
+        self.model_name = local_model or api_model or ""
+        self._client = None
 
-            if not check_model_in_cache(model_id):
-                raise ValueError(
-                    f"Cannot proceed: Model {model_id} not found in cache or locally and download failed."
-                )
+        if local_model:
+            try:
+                from loaders.load_model_config import load_model_config
+            except ImportError as e:
+                logger.error("Failed to import load_model_config; ensure loaders are installed.")
+                raise ImportError("Failed to import load_model_config; ensure loaders are installed.") from e
 
-            if device == "auto":
-                device = "cuda" if torch.cuda.is_available() else "cpu"
-            self.device = device
-            dtype = (
-                torch.bfloat16
-                if model_id == "LiquidAI/LFM2-1.2B"
-                else getattr(torch, torch_dtype, torch.float16)
+            try:
+                proj_cfg = load_model_config(local_model, config_file=MODEL_CONFIGS_YAML_FILE)
+                logger.debug(f"Loaded config for '{local_model}': {proj_cfg}")
+            except (ValueError, FileNotFoundError) as e:
+                logger.error(f"Failed to load model configuration for '{local_model}' from {MODEL_CONFIGS_YAML_FILE}: {e}")
+                raise
+
+            init_config = LLMInitConfig(
+                name=local_model,
+                loader=proj_cfg.loader,
+                hf_model=proj_cfg.config.model_id_or_path,
+                device=proj_cfg.config.device,
+                dtype=proj_cfg.config.torch_dtype,
+                trust_remote_code=proj_cfg.config.trust_remote_code or True,
+                api_model=None,
             )
+            logger.info(f"[LLMManager] ✅ Using config: {init_config}")
 
-            is_repo_id = "/" in model_id and not Path(model_id).is_absolute()
-            model_path = model_id if is_repo_id else str(Path(model_id).resolve())
+            # Get Hugging Face token for gated models
+            hf_token = os.getenv("HF_TOKEN")
+            if not hf_token:
+                logger.warning("No HF_TOKEN environment variable found. Some gated models may require authentication.")
 
-            print(
-                f"[LLMManager] ✅ Using model: {model_path} ({self.loader}) on {device}"
-            )
+            if init_config.loader == "transformers":
+                try:
+                    from transformers import AutoModelForCausalLM, AutoTokenizer
+                except ImportError as e:
+                    raise ImportError("transformers not installed; `pip install transformers`") from e
 
-            is_llama3_8b = "meta-llama/Meta-Llama-3-8B" in model_id
-            self.is_lfm2 = model_id == "LiquidAI/LFM2-1.2B"
-            offload_params = {}
-            if is_llama3_8b:
-                offload_params = {
-                    "low_cpu_mem_usage": True,
-                    "offload_folder": "offload",
-                }
-                print("[LLMManager] Detected Llama-3-8B: Enabling CPU offloading.")
-            elif self.is_lfm2:
-                print(
-                    "[LLMManager] Detected LFM2-1.2B: Using bfloat16 and trust_remote_code."
-                )
+                try:
+                    device = init_config.device or ("cuda" if torch.cuda.is_available() else "cpu")
+                    self._client = (
+                        AutoTokenizer.from_pretrained(
+                            init_config.hf_model,
+                            use_fast=True,
+                            trust_remote_code=init_config.trust_remote_code,
+                            use_safetensors=proj_cfg.config.use_safetensors,
+                            token=hf_token,
+                            local_files_only=True,
+                        ),
+                        AutoModelForCausalLM.from_pretrained(
+                            init_config.hf_model,
+                            device_map="auto",
+                            trust_remote_code=init_config.trust_remote_code,
+                            torch_dtype=init_config.dtype or "auto",
+                            use_safetensors=proj_cfg.config.use_safetensors,
+                            low_cpu_mem_usage=proj_cfg.config.low_cpu_mem_usage or False,
+                            offload_folder=proj_cfg.config.offload_folder,
+                            token=hf_token,
+                            local_files_only=True,
+                        ),
+                    )
+                    logger.info(f"[LLMManager] 📦 Local model loaded: {init_config.name} on {device}")
+                except Exception as e:
+                    logger.error(f"[LLMManager] Failed to load local model {init_config.name}: {e}")
+                    if "401 Client Error" in str(e):
+                        logger.error(
+                            f"Authentication failed for {init_config.hf_model}. "
+                            f"Ensure the model is downloaded locally to $HF_HOME/hub/models--{init_config.hf_model.replace('/', '--')}/snapshots or you have access via HF_TOKEN."
+                        )
+                    raise
 
-            if self.loader == "gptq":
-                self.tokenizer = AutoTokenizer.from_pretrained(
-                    model_path, use_fast=True, local_files_only=not is_repo_id
-                )
-                self.model = AutoModelForCausalLM.from_pretrained(
-                    model_path,
-                    device_map="auto",
-                    torch_dtype=dtype,
-                    trust_remote_code=self.is_lfm2,
-                    local_files_only=not is_repo_id,
-                    use_safetensors=use_safetensors,
-                    revision="main",
-                    **offload_params,
-                )
-                if self.tokenizer.pad_token_id is None:
-                    self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
-            elif self.loader == "gguf":
-                n_gpu_layers = -1 if device == "cuda" else 0
-                self.model = Llama(
-                    model_path=model_path,
-                    n_gpu_layers=n_gpu_layers,
-                    n_ctx=8192,
-                    verbose=True,
-                )
-                self.tokenizer = self.model
-            elif self.loader == "safetensors":
-                self.tokenizer = AutoTokenizer.from_pretrained(
-                    model_path, use_fast=True, local_files_only=not is_repo_id
-                )
-                self.model = AutoModelForCausalLM.from_pretrained(
-                    model_path,
-                    device_map="auto",
-                    torch_dtype=dtype,
-                    trust_remote_code=self.is_lfm2,
-                    local_files_only=not is_repo_id,
-                    use_safetensors=True,
-                    **offload_params,
-                )
-                if self.tokenizer.pad_token_id is None:
-                    self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
+            elif init_config.loader == "llama_cpp":
+                try:
+                    from llama_cpp import Llama
+                except ImportError as e:
+                    raise ImportError("llama_cpp_python not installed; `pip install llama_cpp_python`") from e
+
+                try:
+                    cache_dir = os.path.join(os.getenv("HF_HOME", os.path.expanduser("~/.cache/huggingface")), "hub")
+                    model_cache_path = os.path.join(cache_dir, f"models--{init_config.hf_model.replace('/', '--')}")
+                    snapshots_dir = os.path.join(model_cache_path, "snapshots")
+                    if not os.path.exists(snapshots_dir):
+                        logger.error(f"No snapshots found for model {init_config.hf_model} at {snapshots_dir}")
+                        raise ValueError(f"No snapshots found for model {init_config.hf_model}")
+                    snapshots = [d for d in os.listdir(snapshots_dir) if os.path.isdir(os.path.join(snapshots_dir, d))]
+                    if not snapshots:
+                        logger.error(f"No snapshot directories found for model {init_config.hf_model} at {snapshots_dir}")
+                        raise ValueError(f"No snapshot directories found for model {init_config.hf_model}")
+                    latest_snapshot = max(snapshots, key=lambda d: os.path.getmtime(os.path.join(snapshots_dir, d)))
+                    model_path = os.path.join(snapshots_dir, latest_snapshot, "tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf")
+                    if not os.path.isfile(model_path):
+                        logger.error(f"Local model file does not exist: {model_path}")
+                        raise ValueError(f"Local model file does not exist: {model_path}")
+                    self._client = Llama(
+                        model_path=str(model_path),
+                        n_ctx=proj_cfg.config.n_ctx or 2048,
+                        n_gpu_layers=proj_cfg.config.n_gpu_layers or 0,
+                        verbose=proj_cfg.config.verbose or False,
+                    )
+                    logger.info(f"[LLMManager] 📦 Local Llama model loaded: {init_config.name}")
+                except Exception as e:
+                    logger.error(f"[LLMManager] Failed to load Llama model {init_config.name}: {e}")
+                    raise
+
+            elif init_config.loader == "gptq":
+                try:
+                    from gptqmodel import GPTQModel
+                    from transformers import AutoTokenizer
+                except ImportError as e:
+                    raise ImportError("gptqmodel or transformers not installed; `pip install gptqmodel transformers`") from e
+
+                try:
+                    self._client = (
+                        AutoTokenizer.from_pretrained(
+                            init_config.hf_model,
+                            use_fast=True,
+                            token=hf_token,
+                            local_files_only=True,
+                        ),
+                        GPTQModel.from_quantized(
+                            init_config.hf_model,
+                            device="cuda" if torch.cuda.is_available() else "cpu",
+                            token=hf_token,
+                        ),
+                    )
+                    logger.info(f"[LLMManager] 📦 Local GPTQ model loaded: {init_config.name}")
+                except Exception as e:
+                    logger.error(f"[LLMManager] Failed to load GPTQ model {init_config.name}: {e}")
+                    if "401 Client Error" in str(e):
+                        logger.error(
+                            f"Authentication failed for {init_config.hf_model}. "
+                            f"Ensure the model is downloaded locally to $HF_HOME/hub/models--{init_config.hf_model.replace('/', '--')}/snapshots or you have access via HF_TOKEN."
+                        )
+                    raise
+
+            elif init_config.loader == "awq":
+                try:
+                    from awq import AutoAWQForCausalLM
+                    from transformers import AutoTokenizer
+                except ImportError as e:
+                    raise ImportError("autoawq or transformers not installed; `pip install autoawq transformers`") from e
+
+                try:
+                    self._client = (
+                        AutoTokenizer.from_pretrained(
+                            init_config.hf_model,
+                            use_fast=True,
+                            token=hf_token,
+                            local_files_only=True,
+                        ),
+                        AutoAWQForCausalLM.from_quantized(
+                            init_config.hf_model,
+                            device="cuda" if torch.cuda.is_available() else "cpu",
+                            fuse_layers=False,
+                            token=hf_token,
+                        ),
+                    )
+                    logger.info(f"[LLMManager] 📦 Local AWQ model loaded: {init_config.name}")
+                except Exception as e:
+                    logger.error(f"[LLMManager] Failed to load AWQ model {init_config.name}: {e}")
+                    if "401 Client Error" in str(e):
+                        logger.error(
+                            f"Authentication failed for {init_config.hf_model}. "
+                            f"Ensure the model is downloaded locally to $HF_HOME/hub/models--{init_config.hf_model.replace('/', '--')}/snapshots or you have access via HF_TOKEN."
+                        )
+                    raise
+
             else:
-                raise ValueError(f"Unsupported loader: {self.loader}")
+                raise ValueError(f"Unsupported loader: {init_config.loader}")
 
-        except Exception as e:
-            print(f"[LLMManager] ❌ Error loading model: {e}")
-            raise
+        else:  # api_model
+            validate_api_model_name(api_model)
+            provider = get_llm_provider(api_model)
+            logger.info(f"[LLMManager] Using API provider: {provider} for model: {api_model}")
+            init_config = LLMInitConfig(
+                name=api_model,
+                loader="openai",
+                api_model=api_model,
+            )
+            logger.info(f"[LLMManager] 📦 API client ready for model: {api_model}")
+            self._client = OpenAIAdapter(model=api_model)
 
-    def generate(
+    async def generate_async(
         self,
-        prompt: str,
-        max_new_tokens: int = 1024,
-        temperature: float = 0.0,
-        system_prompt: Optional[str] = None,
+        messages: List[Dict[str, str]],
+        temperature: float = 0.3,
+        **kwargs: Any,
     ) -> str:
-        if self.use_openai:
-            raise RuntimeError(
-                "LLMManager is in OpenAI mode — local generation is disabled."
+        """
+        Generate a response from the LLM (local or API).
+
+        Args:
+            messages: List of {"role": str, "content": str} dicts.
+            temperature: Sampling temperature.
+            **kwargs: Additional generation parameters (e.g., max_tokens).
+
+        Returns:
+            str: The generated response.
+        """
+        if self._client is None:
+            raise ValueError("LLM client not initialized.")
+
+        if self.api_model:
+            return await self._client.generate_chat_async(
+                messages=messages,
+                temperature=temperature,
+                **kwargs,
             )
 
-        system_prompt = (
-            "Return a valid JSON array of tool calls. Format: "
-            '[{ "tool": "tool_name", "params": { ... } }]. '
-            "The key must be 'tool' (not 'call'), and 'tool' must be one of: "
-            "summarize_config, llm_response, aggregate_file_content, read_file, "
-            "seed_parser, make_virtualenv, list_project_files, echo_message, "
-            "retrieval_tool, locate_file, find_file_by_keyword. "
-            "Do NOT invent new tool names. For general knowledge or definitions, return []."
-        )
-
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt},
-        ]
-
-        print(f"[LLMManager] Messages:\n{json.dumps(messages, indent=2)}\n")
-
-        try:
-            if self.loader in ["gptq", "safetensors"]:
-                if self.is_lfm2:
-                    inputs = self.tokenizer.apply_chat_template(
-                        messages,
-                        add_generation_prompt=True,
-                        return_tensors="pt",
-                        tokenize=True,
-                    ).to(self.device)
-                    with torch.no_grad():
-                        outputs = self.model.generate(
-                            inputs, do_sample=False, max_new_tokens=max_new_tokens
-                        )
-                    generated_text = self.tokenizer.decode(
-                        outputs[0], skip_special_tokens=False
-                    ).strip()
-                else:
-                    full_prompt = (
-                        f"<|begin_of_text|><|start_header_id|>system<|end_header_id>\n{system_prompt}<|eot_id|>"
-                        f"<|start_header_id|>user<|end_header_id>\n{prompt}<|eot_id|>"
-                        f"<|start_header_id|>assistant<|end_header_id>"
-                    )
-                    inputs = self.tokenizer(full_prompt, return_tensors="pt").to(
-                        self.device
-                    )
-                    with torch.no_grad():
-                        outputs = self.model.generate(
-                            **inputs,
-                            max_new_tokens=max_new_tokens,
-                            do_sample=False,
-                            pad_token_id=self.tokenizer.pad_token_id,
-                        )
-                    full_text = self.tokenizer.decode(
-                        outputs[0], skip_special_tokens=True
-                    ).strip()
-
-                    if full_text.startswith(full_prompt):
-                        generated_text = full_text[len(full_prompt) :].strip()
-                    else:
-                        print(
-                            "⚠️ [LLMManager] Prompt prefix not found. Returning full decoded text."
-                        )
-                        generated_text = full_text
-
-            elif self.loader == "gguf":
-                grammar_text = """
-root ::= "[" ws (tool-call ("," ws tool-call)*)? ws "]"
-tool-call ::= "{" ws "\"tool\"" ws ":" ws string ws "," ws "\"params\"" ws ":" ws object ws "}"
-object ::= "{" ws (pair ("," ws pair)*)? ws "}"
-pair ::= string ws ":" ws value
-value ::= object | array | string | number | "true" | "false" | "null"
-array ::= "[" ws (value ("," ws value)*)? ws "]"
-string ::= "\"" ( [^"\\] | "\\" . )* "\""
-number ::= ("-"? ("0" | [1-9][0-9]*)) ("." [0-9]+)? ([eE] [+-]? [0-9]+)?
-ws ::= [ \t\n\r]*
-                """
-                grammar = LlamaGrammar.from_string(grammar_text)
-
-                output = self.model.create_chat_completion(
+        if self.local_model:
+            if isinstance(self._client, tuple):  # transformers, gptq, awq
+                tokenizer, model = self._client
+                inputs = tokenizer.apply_chat_template(
                     messages,
-                    max_tokens=max_new_tokens,
-                    temperature=0.0,
-                    top_p=0.85,
-                    grammar=grammar,
-                    stop=["</s>"],
+                    tokenize=True,
+                    add_generation_prompt=True,
+                    return_tensors="pt",
                 )
-                generated_text = output["choices"][0]["message"]["content"].strip()
-
-                json_match = re.search(r"\[\s*\{.*?\}\s*\]", generated_text, re.DOTALL)
-                if json_match:
-                    generated_text = json_match.group(0)
-                else:
-                    print(
-                        f"[LLMManager] ⚠️ No JSON array found in output: {generated_text}"
-                    )
-                    return "[]"
-
-            else:
-                raise ValueError(f"Unsupported loader: {self.loader}")
-
-            print(
-                f"[LLMManager] 🧪 Generated text before return:\n{repr(generated_text)}\n"
-            )
-
-            if not isinstance(generated_text, str):
-                raise ValueError(
-                    f"Generated output is not a string: {type(generated_text)}"
+                device = getattr(model, "device", "cuda")
+                inputs = inputs.to(device)
+                outputs = model.generate(
+                    inputs,
+                    max_new_tokens=kwargs.get("max_new_tokens", 512),
+                    temperature=temperature,
+                    do_sample=temperature > 0.0,
+                    min_p=kwargs.get("min_p", 0.15),
+                    repetition_penalty=kwargs.get("repetition_penalty", 1.05),
+                    top_p=kwargs.get("top_p", 0.9),
                 )
+                return tokenizer.decode(outputs[0], skip_special_tokens=True)
 
-            return generated_text
+            elif isinstance(self._client, object):  # llama_cpp
+                prompt = "\n".join(f"{m['role']}: {m['content']}" for m in messages)
+                response = self._client(
+                    prompt=prompt,
+                    max_tokens=kwargs.get("max_tokens", 512),
+                    temperature=temperature,
+                    top_p=kwargs.get("top_p", 0.9),
+                )
+                return response.get("choices", [{}])[0].get("text", "").strip()
 
-        except Exception as e:
-            print(f"❌ [LLMManager] Generation failed: {e}")
-            raise
+        raise ValueError("No valid LLM client configured.")

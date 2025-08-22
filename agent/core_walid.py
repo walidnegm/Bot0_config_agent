@@ -4,7 +4,7 @@ Core agent logic: initializes tool registry, planner, and executor, and processe
 Supports both local and cloud (API) LLM model selection via explicit arguments.
 """
 import logging
-from typing import Optional
+from typing import Optional, Dict, Union
 import asyncio
 from agent.planner import Planner
 from agent.tool_chain_executor import ToolChainExecutor
@@ -12,7 +12,6 @@ from agent_models.step_state import StepState
 from agent_models.step_status import StepStatus
 from tools.tool_registry import ToolRegistry
 from tools.tool_models import ToolResult, ToolResults
-
 logger = logging.getLogger(__name__)
 
 class AgentCore:
@@ -34,10 +33,13 @@ class AgentCore:
         logger.info("[AgentCore] 🔧 Initializing ToolRegistry, Planner, and Executor…")
         self.registry = ToolRegistry()
         self.planner = Planner(
-            local_model=local_model_name,  # normalized names
-            api_model=api_model_name,
+            local_model_name=local_model_name, api_model_name=api_model_name
         )
         logger.info("[AgentCore] ✅ Initialization complete.")
+
+
+    # In agent/core.py
+    # In agent/core.py
 
     def handle_instruction(self, instruction: str) -> ToolResults:
         """
@@ -48,14 +50,19 @@ class AgentCore:
             logger.debug("[AgentCore] 🧭 Calling planner.plan_async()…")
             plan = asyncio.run(self.planner.plan_async(instruction))
 
+            # If the plan is empty or just a fallback, handle it gracefully.
             if not plan or not plan.steps:
                 logger.warning("[AgentCore] Planner returned an empty plan. No tools to execute.")
+                # You can decide to return an empty result or a specific message
                 return ToolResults(results=[])
 
             executor = ToolChainExecutor(plan=plan, planner=self.planner)
             logger.debug("[AgentCore] ✅ Plan generated: %s", plan)
             logger.debug("[AgentCore] 🚀 Executing plan…")
 
+            # ##########################################################################
+            # FIXED LINE: Added the required 'plan' argument back to the call.
+            # ##########################################################################
             tool_results = executor.run_plan_with_fsm(plan)
 
             logger.debug("[AgentCore] ✅ Execution complete.")
@@ -73,4 +80,3 @@ class AgentCore:
                 state=StepState.FAILED,
             )
             return ToolResults(results=[error_result])
-

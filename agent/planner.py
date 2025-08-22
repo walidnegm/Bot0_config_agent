@@ -1,228 +1,219 @@
-"""agent/planner.py
-Tool planning: Converts user instructions into a validated ToolChain (Pydantic) plan
-using a local or cloud LLM, driven by a Jinja2-rendered YAML prompt file.
 """
-from __future__ import annotations
-import asyncio
+agent/planner.py
+Main planner module for generating tool chains from user instructions.
+Uses an LLM (local or API) to produce a structured JSON plan, with robust
+parsing and fallback handling.
+"""
 import logging
-from typing import Any, Dict, List, Literal, Optional, Type, Union
-from jinja2 import Environment, FileSystemLoader
-from pydantic import BaseModel
-import yaml
-# Registry and agent models
+import re
+import json
+from typing import Any, Dict, List, Optional, Tuple
+from agent_models.agent_models import ToolCall, ToolChain
+from agent_models.step_status import StepStatus
+from agent_models.step_state import StepState
+from agent.prompt_builder import PromptBuilder
+from prompts.load_agent_prompts import load_planner_prompts
+from tools.tool_models import ToolResult, ToolResults
 from tools.tool_registry import ToolRegistry
-from agent_models.agent_models import (
-    CodeResponse,
-    JSONResponse,
-    TextResponse,
-    ToolCall,
-    ToolChain,
-)
-# Local/Cloud LLM bridges
-from agent.llm_manager import get_llm_manager
-from utils.llm_api_async import (
-    call_anthropic_api_async,
-    call_gemini_api_async,
-    call_openai_api_async,
-    call_llm_api_async,
-)
-# Prompt loading helpers and paths
-from configs.paths import AGENT_PROMPTS
-from prompts.prompt_utils import extract_and_validate_plan  # Updated import
-from configs.api_models import validate_api_model_name, get_llm_provider
+from agent.llm_manager import LLMManager
 
 logger = logging.getLogger(__name__)
 
+# Accepts "<step_0>" and "<step_0.result>" (and optional dotted fields after the index)
+_PLACEHOLDER_RE = re.compile(r"^<step_(\d+)(?:\.[^>]*)?>$")
+
+
+def _step_index_from_placeholder(s: str) -> Optional[int]:
+    if not isinstance(s, str):
+        return None
+    m = _PLACEHOLDER_RE.match(s.strip())
+    return int(m.group(1)) if m else None
+
+
 class Planner:
-    """
-    Planner: Generates a validated ToolChain from user instructions.
-    Chooses between local and API model based on initialization.
-    """
     def __init__(
         self,
-        local_model_name: Optional[str] = None,
-        api_model_name: Optional[str] = None,
+        local_model: Optional[str] = None,
+        api_model: Optional[str] = None,
     ):
-        if not (local_model_name or api_model_name):
-            raise ValueError(
-                "You must specify at least one of local_model_name or api_model_name."
-            )
-        self.tool_registry = ToolRegistry()
-        self.local_model_name = local_model_name
-        self.api_model_name = api_model_name
-        if self.api_model_name:
-            logger.info(f"[Planner] ⚙️ Using API/cloud LLM: {self.api_model_name}")
-        else:
-            logger.info(f"[Planner] ⚙️ Using local LLM: {self.local_model_name}")
-
-    # ---------------------------------------------------------------------
-    # Public API
-    # ---------------------------------------------------------------------
-    async def plan_async(self, instruction: str) -> ToolChain:
-        """
-        Asynchronously generates a plan (list of tool calls) from the user instruction.
-        Renders the Jinja template -> YAML -> builds prompts -> calls LLM -> extracts plan.
-        """
-        instruction = instruction.strip()
-        # 1) Load & render the planner YAML template with available tools
-        try:
-            env = Environment(loader=FileSystemLoader(AGENT_PROMPTS.parent))
-            template = env.get_template(AGENT_PROMPTS.name)
-            rendered_yaml = template.render(
-                user_task=instruction,
-                tools=self.tool_registry.get_all(),
-                local_model=bool(self.local_model_name)  # Pass for prompt customization
-            )
-            cfg = yaml.safe_load(rendered_yaml)
-            if "planner" not in cfg:
-                raise KeyError("Planner section not found in rendered YAML template.")
-            logger.info("[Planner] Loaded and rendered main planner prompt.")
-        except Exception as e:
-            logger.error(f"[Planner] Failed to load or render template: {e}", exc_info=True)
-            return self._fallback_llm_response(instruction)
-
-        # 2) Build the full prompt
-        system_prompt = cfg["planner"].get("system_prompt", "").strip()
-        main_prompt = cfg["planner"].get("main_planner_prompt", "").strip()
-        if not system_prompt or not main_prompt:
-            logger.warning("[Planner] Missing system_prompt or main_planner_prompt in template.")
-            return self._fallback_llm_response(instruction)
-        full_prompt = f"{system_prompt}\n{main_prompt}"
-        logger.debug(f"[Planner] Full rendered prompt:\n{full_prompt}")
-
-        # 3) Call the LLM
-        try:
-            raw_plan = await self._plan_with_llm_async(full_prompt)
-            logger.debug(f"[Planner] Raw LLM output:\n{raw_plan}")
-        except Exception as e:
-            logger.error(f"[Planner] LLM call failed: {e}", exc_info=True)
-            return self._fallback_llm_response(instruction)
-
-        # 4) Extract and validate the plan
-        try:
-            plan = self._extract_plan(raw_plan, instruction)
-            return self._parse_and_validate_tool_calls(plan, instruction)
-        except Exception as e:
-            logger.error(f"[Planner] Plan extraction/validation failed: {e}", exc_info=True)
-            return self._fallback_llm_response(instruction)
+        if (local_model and api_model) or (not local_model and not api_model):
+            raise ValueError("Exactly one of local_model or api_model must be specified.")
+        self.local_model = local_model
+        self.api_model = api_model
+        self.is_local = bool(local_model)
+        logger.info(
+            f"[Planner] ⚙️ Using {'local' if self.is_local else 'API'} LLM: {local_model or api_model}"
+        )
+        self.llm_manager = LLMManager(
+            local_model=local_model,
+            api_model=api_model,
+        )
+        self.registry = ToolRegistry()
+        self.prompt_builder = PromptBuilder(
+            llm_manager=self.llm_manager,
+            tool_registry=self.registry,
+        )
 
     async def dispatch_llm_async(
         self,
-        user_prompt: str,
-        system_prompt: str = "",
-        response_type: Literal["json", "text", "code"] = "json",
-        response_model: Optional[Type[BaseModel]] = None,
-        **kwargs,
-    ) -> Union[JSONResponse, TextResponse, CodeResponse, str]:
-        """
-        Universal dispatcher for local or API LLM calls.
-        """
-        if self.api_model_name:
-            provider = get_llm_provider(self.api_model_name)
-            return await call_llm_api_async(
-                provider=provider,
-                model_id=self.api_model_name,
-                prompt=user_prompt,
-                system_prompt=system_prompt,
-                response_format=response_type,
-                **kwargs,
+        messages: List[Dict[str, str]],
+        temperature: float = 0.3,
+        generation_kwargs: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        try:
+            resp = await self.llm_manager.generate_async(
+                messages=messages,
+                temperature=temperature,
+                **(generation_kwargs or {}),
             )
-        else:
-            llm_manager = get_llm_manager(self.local_model_name)
-            return await llm_manager.generate_async(
-                user_prompt=user_prompt,
-                system_prompt=system_prompt,
-                expected_res_type=response_type,
-                response_model=response_model,
-                **kwargs,
+            return {"text": resp or ""}
+        except Exception as e:
+            logger.error(f"[Planner] LLM dispatch failed: {e}", exc_info=True)
+            raise ValueError(f"LLM dispatch failed: {e}")
+
+    async def plan_async(self, instruction: str) -> ToolChain:
+        try:
+            prompt_dict = load_planner_prompts(
+                user_task=instruction,
+                tools=self.registry.get_all(),
+                local_model=self.is_local,
+            )
+            system_prompt = prompt_dict["system_prompt"]
+            main_prompt = prompt_dict["main_planner_prompt"]
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": main_prompt},
+            ]
+            resp = await self.dispatch_llm_async(messages=messages)
+            if not isinstance(resp, dict) or "text" not in resp:
+                logger.error(f"[Planner] Unexpected LLM response format: {type(resp)} {resp}")
+                raise ValueError("Failed to generate plan: Invalid LLM response format")
+            raw_plan = str(resp.get("text", ""))
+            logger.debug(f"[Planner] Raw LLM response: {raw_plan}")
+            if not raw_plan:
+                logger.error("[Planner] Empty LLM response")
+                raise ValueError("Failed to generate plan: Empty LLM response")
+
+            from prompts.prompt_utils import extract_and_validate_plan
+            plan = extract_and_validate_plan(
+                raw_text=raw_plan,
+                allowed_tools=[tool["name"] for tool in self.registry.get_all()],
+                use_sentinel=True,
             )
 
-    # ---------------------------------------------------------------------
-    # Internal: LLM Planning
-    # ---------------------------------------------------------------------
-    async def _plan_with_llm_async(self, full_prompt: str) -> str:
-        """
-        Call the LLM to generate a JSON plan (array of tool calls).
-        Returns the raw text response (JSON array expected).
-        """
-        logger.debug(f"[Planner] Sending prompt to LLM:\n{full_prompt}")
-        response = await self.dispatch_llm_async(
-            user_prompt=full_prompt,
-            system_prompt="",
-            response_type="json",
-            response_model=JSONResponse,
-            max_tokens=1024,
-            temperature=0.1 if self.local_model_name else 0.2,  # Lower for local to reduce hallucination
-            do_sample=False if self.local_model_name else True  # No sampling for local
-        )
-        # Handle both direct string and wrapped JSONResponse
-        raw_text = (
-            response.text
-            if isinstance(response, JSONResponse)
-            else str(response)
-        )
-        logger.debug(f"[Planner] Raw LLM response:\n{raw_text}")
-        return raw_text
+            # ---- Safety: coerce known param shapes right after parse (helps if LLM used JSON strings) ----
+            def _coerce_param_shapes(item: Dict[str, Any]) -> None:
+                tool = item.get("tool")
+                params = item.get("params", {})
+                # read_files.path should be a list (or a single string path)
+                if tool == "read_files" and "path" in params:
+                    p = params["path"]
+                    if isinstance(p, str):
+                        s = p.strip()
+                        # If it looks like a JSON array, parse to list
+                        if s.startswith("[") and s.endswith("]"):
+                            try:
+                                parsed = json.loads(s)
+                                if isinstance(parsed, list):
+                                    params["path"] = parsed
+                            except Exception:
+                                pass
+                    # If it's not list, make it a singleton list (tools can still handle it)
+                    if not isinstance(params["path"], list):
+                        params["path"] = [params["path"]]
 
-    def _extract_plan(self, raw_text: str, fallback_prompt: str) -> List[Dict[str, Any]]:
-        """
-        Extract a list of tool calls from raw LLM output.
-        Steps:
-          1) Use extract_and_validate_plan to get validated tool calls.
-          2) If nothing valid, fall back to the LLM response tool with the user instruction.
-        """
-        plan = extract_and_validate_plan(
-            raw_text=raw_text,
-            allowed_tools=[tool["name"] for tool in self.tool_registry.get_all()],
-            use_sentinel=True,
-            sentinel="FINAL_JSON"
-        )
-        if plan:
-            logger.info("[Planner] ✅ Extracted valid JSON tool plan.")
-            return plan
-        logger.warning(
-            "[Planner] No valid JSON plan found. Falling back to LLM response."
-        )
-        return [{"tool": "llm_response_async", "params": {"prompt": fallback_prompt}}]
+                # aggregate_file_content.steps and summarize_* .files should be lists
+                if tool in {"aggregate_file_content", "summarize_config", "summarize_files"}:
+                    key = "steps" if tool == "aggregate_file_content" else "files"
+                    if key in params and not isinstance(params[key], list):
+                        params[key] = [params[key]]
 
-    def _parse_and_validate_tool_calls(
-        self, tool_calls: List[Dict[str, Any]], instruction: str
-    ) -> ToolChain:
-        """
-        Parses and validates a list of tool call dictionaries against the registry.
-        Unknown tools are skipped; if nothing valid, fall back to LLM response.
-        """
-        validated_steps: List[ToolCall] = []
-        for call in tool_calls:
-            if not isinstance(call, dict):
-                continue
-            tool_name = call.get("tool")
-            params = call.get("params", {})
-            if not tool_name or not isinstance(params, dict):
-                continue
-            if not self.tool_registry.has_tool(tool_name):
-                logger.warning(
-                    "[Planner] Plan contained an unknown tool: '%s'. Skipping.", tool_name
-                )
-                continue
-            validated_steps.append(ToolCall(tool=tool_name, params=params))
-        if not validated_steps:
-            logger.warning(
-                "[Planner] No valid tool calls found in the plan. Falling back."
-            )
-            return self._fallback_llm_response(instruction)
-        logger.info(
-            "[Planner] Returning ToolChain with %d validated tool call(s).",
-            len(validated_steps),
-        )
-        return ToolChain(steps=validated_steps)
+            for item in plan:
+                _coerce_param_shapes(item)
 
-    # ---------------------------------------------------------------------
-    # Internal: Fallback
-    # ---------------------------------------------------------------------
-    def _fallback_llm_response(self, instruction: str) -> ToolChain:
-        """A generic catch-all fallback tool call."""
-        fallback_call = ToolCall(
-            tool="llm_response_async", params={"prompt": instruction}
-        )
-        return ToolChain(steps=[fallback_call])
+            # ---- Validate structure and placeholders (no forward references) ----
+            required_params = {
+                "list_project_files": ["root"],
+                "read_files": ["path"],
+                "aggregate_file_content": ["steps"],
+                "llm_response_async": ["prompt"],
+                "find_dir_size": ["root"],
+                "find_dir_structure": ["root"],
+                "find_file_by_keyword": ["root", "keyword"],
+                "locate_file": ["filename"],
+                "make_virtualenv": ["path"],
+                "set_scope": ["scope"],
+                "echo_message": ["message"],
+                "retrieval_tool": ["query"],
+                "seed_parser": ["data"],
+                "summarize_config": ["files"],
+                "summarize_files": ["files"],
+            }
+
+            def _is_forward_ref(idx: int, current_step: int) -> bool:
+                return idx >= current_step
+
+            def _check_params(p: Any, current_step: int):
+                if isinstance(p, dict):
+                    for v in p.values():
+                        _check_params(v, current_step)
+                elif isinstance(p, list):
+                    for v in p:
+                        _check_params(v, current_step)
+                elif isinstance(p, str):
+                    idx = _step_index_from_placeholder(p)
+                    if idx is not None and _is_forward_ref(idx, current_step):
+                        logger.warning(f"[Planner] Invalid or forward-referencing placeholder {p} in step_{current_step}")
+
+            for i, item in enumerate(plan):
+                tool = item.get("tool")
+                params = item.get("params", {})
+                if tool not in required_params:
+                    logger.warning(f"[Planner] Unknown tool {tool} in plan")
+                    continue
+                for param in required_params.get(tool, []):
+                    if param not in params:
+                        logger.warning(f"[Planner] Missing required parameter '{param}' for tool {tool} in step_{i}")
+                        if tool == "list_project_files" and param == "root":
+                            params["root"] = "."
+                _check_params(params, i)
+
+            logger.info(f"[Planner] Generated plan: {json.dumps(plan, indent=2)}")
+            try:
+                return ToolChain(steps=[ToolCall(**item) for item in plan])
+            except Exception as e:
+                logger.error(f"[Planner] Failed to parse plan as ToolChain: {e}")
+                raise ValueError(f"Failed to generate plan: Invalid tool chain format: {e}")
+        except Exception as e:
+            logger.error(f"[Planner] Failed to generate plan: {e}", exc_info=True)
+            raise ValueError(f"Failed to generate plan: {e}")
+
+    async def evaluate_async(self, task: str, response: Any) -> Dict[str, Any]:
+        try:
+            from prompts.load_agent_prompts import load_evaluator_prompts
+            prompt_dict = load_evaluator_prompts(task=task, response=str(response))
+            system_prompt = prompt_dict["system_prompt"]
+            user_prompt = prompt_dict["user_prompt_template"]
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ]
+            resp = await self.dispatch_llm_async(messages=messages)
+            raw_eval = (resp or {}).get("text", "")
+            if not raw_eval:
+                logger.error("[Planner] Empty evaluation response")
+                raise ValueError("Evaluation failed: Empty response")
+            from agent_models.llm_response_validators import clean_and_extract_json
+            try:
+                eval_dict = clean_and_extract_json(raw_eval)
+                if not isinstance(eval_dict, dict):
+                    logger.error("[Planner] Evaluation response is not a dict: %s", eval_dict)
+                    raise ValueError("Evaluation failed: Invalid response format")
+                return eval_dict
+            except Exception as e:
+                logger.error(f"[Planner] Failed to parse evaluation: {e}")
+                raise ValueError(f"Evaluation failed: Invalid response format: {e}")
+        except Exception as e:
+            logger.error(f"[Planner] Evaluation failed: {e}", exc_info=True)
+            raise ValueError(f"Evaluation failed: {e}")
+

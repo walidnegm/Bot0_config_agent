@@ -1,77 +1,65 @@
-"""agent/prompt_builder.py"""
+"""
+agent/prompt_builder.py
+Builds and manages prompts for the tool-calling agent.
+Prompts are populated with the registered tools at runtime (Jinja2).
+"""
+
+from typing import Any, Dict, List, Optional
+from agent.llm_manager import LLMManager
+from tools.tool_registry import ToolRegistry
+from prompts.load_agent_prompts import (
+    load_planner_prompts,
+    load_evaluator_prompts,
+    load_intent_classifier_prompts,
+)
 
 class PromptBuilder:
-    def __init__(self, tool_registry):
-        self.tool_registry = tool_registry
+    def __init__(
+        self,
+        llm_manager: Optional[LLMManager] = None,
+        tool_registry: Optional[ToolRegistry] = None,
+    ):
+        """
+        Initialize PromptBuilder with an LLMManager and ToolRegistry.
 
-    def build_prompt(self, instruction: str, tools: dict) -> str:
-        tool_lines = []
-        for name, tool in tools.items():
-            desc = tool.get("description", "No description provided.")
-            props = tool.get("parameters", {}).get("properties", {})
-            args = ", ".join(
-                f'{key}: {val.get("type", "unknown")}' for key, val in props.items()
-            )
-            tool_lines.append(f"- {name}({args}): {desc}")
+        Args:
+            llm_manager (Optional[LLMManager]): Manager for local or API LLM calls.
+            tool_registry (Optional[ToolRegistry]): Registry of available tools.
+        """
+        self.llm_manager = llm_manager
+        self.tool_registry = tool_registry or ToolRegistry()
+        self.is_local = bool(llm_manager.local_model) if llm_manager else False
 
-        tools_block = "\n".join(tool_lines)
+    def build_planner_prompt(self, instruction: str) -> List[Dict[str, str]]:
+        """
+        Build the planner prompt with available tools injected.
+        """
+        prompt_dict = load_planner_prompts(
+            user_task=instruction,
+            tools=self.tool_registry.get_all(),
+            local_model=self.is_local,
+        )
+        return [
+            {"role": "system", "content": prompt_dict["system_prompt"]},
+            {"role": "user", "content": prompt_dict["main_planner_prompt"]},
+        ]
 
-        prompt = f"""You are a precise tool-calling agent. You have access to the following tools:
+    def build_evaluator_prompt(self, task: str, response: Any) -> List[Dict[str, str]]:
+        """
+        Build the evaluator prompt for scoring a task response.
+        """
+        prompt_dict = load_evaluator_prompts(task=task, response=str(response))
+        return [
+            {"role": "system", "content": prompt_dict["system_prompt"]},
+            {"role": "user", "content": prompt_dict["user_prompt_template"]},
+        ]
 
-{tools_block}
-
-Your ONLY output must be a single valid JSON array of objects, without any preamble or explanation.
-
-Format strictly as follows:
-[
-  {{
-    "tool": "tool_name",
-    "params": {{
-      "arg1": "value1",
-      "arg2": "value2"
-    }}
-  }},
-  ...
-]
-
-Do NOT include Markdown formatting, comments, code blocks (no ```), or labels like "json".
-Signal the end of your thinking by writing a line with only the word: FINAL_JSON
-After FINAL_JSON, output ONLY the JSON array.
-
-If no tool is relevant, return an empty array: []
-
-For multi-step tasks, return multiple tool calls in sequence. You may refer to previous tool outputs using "<step_N.attribute>" (e.g., "<step_0.files>").
-
-Examples:
-
-Single step:
-FINAL_JSON
-[
-  {{
-    "tool": "list_project_files",
-    "params": {{
-      "root": "."
-    }}
-  }}
-]
-
-Two steps:
-FINAL_JSON
-[
-  {{
-    "tool": "list_project_files",
-    "params": {{
-      "root": "."
-    }}
-  }},
-  {{
-    "tool": "read_files",
-    "params": {{
-      "path": "<step_0.files>"
-    }}
-  }}
-]
-
-Instruction: {instruction}
-"""
-        return prompt
+    def build_intent_classifier_prompt(self, instruction: str) -> List[Dict[str, str]]:
+        """
+        Build the intent classifier prompt (task_decomposition or describe_only).
+        """
+        prompt_dict = load_intent_classifier_prompts(user_task=instruction)
+        return [
+            {"role": "system", "content": prompt_dict["system_prompt"]},
+            {"role": "user", "content": prompt_dict["user_prompt_template"]},
+        ]

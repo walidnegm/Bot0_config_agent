@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Any, Dict, List, Literal, Optional, Union  # Added Any to fix the error
+from typing import Any, Dict, List, Literal, Optional, Union
 from pydantic import BaseModel, Field, field_validator, model_validator
 from agent_models.step_state import StepState
 from agent_models.step_status import StepStatus
@@ -106,7 +106,7 @@ class DirectoryNode(BaseModel):
     name: str = Field(..., description="Base name of file or directory")
     type: NodeType = Field(..., description="Node type: 'file' or 'directory'")
     path: str = Field(..., description="Relative path from the root")
-    children: List[DirectoryNode] = Field(
+    children: List["DirectoryNode"] = Field(
         default_factory=list, description="Child nodes (for directories only)"
     )
 
@@ -167,18 +167,14 @@ class LocateFileInput(BaseModel):
     root: Optional[str] = None
 
 
-class LocateFileOutput(ToolOutput):
-    result: Optional[str] = None  # file path or None
-
-# -----------------------------------------------------------------------------
-# locate_file
-# -----------------------------------------------------------------------------
 class LocateFileResult(BaseModel):
     path: str
 
 
 class LocateFileOutput(ToolOutput):
     result: Optional[LocateFileResult] = None
+
+
 # -----------------------------------------------------------------------------
 # make_virtualenv
 # -----------------------------------------------------------------------------
@@ -308,3 +304,4 @@ class ToolSpec(BaseModel):
     parameters: Dict[str, Any]  # keep JSON Schema here if you want
     input_model: Optional[str] = None  # e.g. "ReadFilesInput"
     output_model: Optional[str] = None  # e.g. "ReadFilesResult"
+
