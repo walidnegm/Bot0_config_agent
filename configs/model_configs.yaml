@@ -36,6 +36,7 @@
 qwen3_1_7b_instruct_gptq:
   loader: gptq
   model_id: kaitchup/Qwen3-1.7B-autoround-4bit-gptq
+  model_description: Compact instruction-tuned model for chat and reasoning, runs on ~4 GB VRAM with CPU spill.
   quantization_method: GPTQ
   load_config:
     model_id_or_path: models/qwen3_1_7b_instruct_gptq
@@ -54,6 +55,7 @@ qwen3_1_7b_instruct_gptq:
 qwen3_4b_awq:
   loader: awq
   model_id: Qwen/Qwen3-4B-AWQ
+  model_description: Qwen-3 4B AWQ quantized. Balanced chat/coding model; strong baseline for 4–6 GB GPUs.
   quantization_method: AWQ
   load_config:
     model_id_or_path: models/qwen3_4b_awq
@@ -73,6 +75,7 @@ qwen3_4b_awq:
 gemma_2_2b_gptq:
   loader: gptq
   model_id: shuyuej/gemma-2-2b-it-GPTQ
+  model_description: Gemma-2 2B GPTQ quantized. Lightweight Google-trained instruct model; efficient for reasoning on constrained GPUs.
   quantization_method: GPTQ
   load_config:
     model_id_or_path: models/gemma_2_2b_gptq
@@ -91,6 +94,7 @@ gemma_2_2b_gptq:
 deepseek_coder_1_3b_gptq:
   loader: gptq
   model_id: TheBloke/deepseek-coder-1.3b-instruct-GPTQ
+  model_description: DeepSeek-Coder 1.3B GPTQ quantized. Specialized for code generation and debugging; small footprint.
   quantization_method: GPTQ
   load_config:
     model_id_or_path: models/deepseek_coder_1_3b_gptq
@@ -109,6 +113,7 @@ deepseek_coder_1_3b_gptq:
 lfm2_1_2b:
   loader: transformers
   model_id: LiquidAI/LFM2-1.2B
+  model_description: LiquidAI LFM-2 1.2B, FP (transformers). Small general-purpose open-source model; research/experimentation friendly.
   quantization_method: FP
   load_config:
     model_id_or_path: LiquidAI/LFM2-1.2B
@@ -127,6 +132,7 @@ lfm2_1_2b:
 phi_3_5_mini_awq:
   loader: awq
   model_id: thesven/Phi-3.5-mini-instruct-awq
+  model_description: Phi-3.5 Mini AWQ quantized. Microsoft’s compact instruction model; efficient with surprisingly strong reasoning at small scale.
   quantization_method: AWQ
   load_config:
     model_id_or_path: models/phi_3_5_mini_awq
@@ -146,6 +152,7 @@ phi_3_5_mini_awq:
 llama_2_7b_chat_gptq:
   loader: gptq
   model_id: TheBloke/Llama-2-7B-Chat-GPTQ
+  model_description: LLaMA-2 7B Chat GPTQ quantized. Proven open-weight chat model; solid fallback, though superseded by LLaMA-3.
   quantization_method: GPTQ
   load_config:
     model_id_or_path: models/llama_2_7b_chat_gptq
@@ -164,6 +171,7 @@ llama_2_7b_chat_gptq:
 llama_3_2_3b_gptq:
   loader: gptq
   model_id: shuyuej/Llama-3.2-3B-Instruct-GPTQ
+  model_description: LLaMA-3.2 3B GPTQ quantized. Instruction-tuned; fits well on mid-range GPUs, better reasoning than earlier 3B baselines.
   quantization_method: GPTQ
   load_config:
     model_id_or_path: models/llama_3_2_3b_gptq
@@ -182,6 +190,7 @@ llama_3_2_3b_gptq:
 llama3_8b:
   loader: transformers
   model_id: meta-llama/Meta-Llama-3-8B-Instruct
+  model_description: Meta LLaMA-3 8B Instruct, FP. Strong general-purpose instruct model; requires larger VRAM (12–16 GB for FP16).
   quantization_method: FP
   load_config:
     model_id_or_path: meta-llama/Meta-Llama-3-8B-Instruct
@@ -197,6 +206,7 @@ llama3_8b:
 tinyllama_1_1b_chat_gguf:
   loader: llama_cpp
   model_id: TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF
+  model_description: TinyLLaMA-1.1B Chat, GGUF quantized. Ultra-small llama.cpp-friendly model; runs on CPU or small GPUs, useful for testing pipelines.
   quantization_method: GGUF
   load_config:
     model_id_or_path: models/tinyllama_1_1b_chat_gguf/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf

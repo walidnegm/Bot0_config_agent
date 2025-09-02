@@ -77,9 +77,9 @@ from utils.llm_response_validators import (
     validate_response_type,
     validate_tool_selection_or_steps,
 )
-from utils.find_root_dir import find_project_root
-from utils.gpu_monitor import log_gpu_usage, log_peak_vram_usage
-from utils.coerce_max_memory import coerce_max_memory
+from utils.system.find_root_dir import find_project_root
+from utils.system.gpu_monitor import log_gpu_usage, log_peak_vram_usage
+from utils.system.coerce_max_memory import coerce_max_memory
 
 
 logger = logging.getLogger(__name__)

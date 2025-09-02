@@ -1,3 +1,5 @@
+"""downloaders/download_all_models.py"""
+
 import os
 from pathlib import Path
 import logging
@@ -5,7 +7,7 @@ import yaml
 from dotenv import load_dotenv
 from huggingface_hub import snapshot_download
 from transformers import AutoTokenizer, AutoModelForCausalLM
-from utils.find_root_dir import find_project_root
+from utils.system.find_root_dir import find_project_root
 from configs.paths import MODEL_CONFIGS_YAML_FILE
 import logging_config
 

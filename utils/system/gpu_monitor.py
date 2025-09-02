@@ -2,7 +2,8 @@
 import logging
 import pynvml
 import torch
-import logging_config  # Make sure this sets up "resource" logger
+
+# import logging_config  # Make sure this sets up "resource" logger
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,7 @@ max_alloc=4.20 MB, max_reserved=4.20 MB
 
     How to use:
         # Import at the top of your file
-        from utils.gpu_monitor import log_gpu_usage
+        from utils.system.gpu_monitor import log_gpu_usage
 
         log_gpu_usage("before_load_model")
         llm = get_llm_manager(self.local_model_name)
@@ -103,3 +104,39 @@ def log_peak_vram_usage(label: str = ""):
     except Exception as e:
         logger.error(...)
         return 0.0  # or -1.0 to indicate an error
+
+
+def log_embedding_footprint(model, label: str = "embeddings"):
+    """
+    Report total VRAM footprint attributable to embedding modules by summing param sizes.
+    Works for standard and quantized models (falls back to any *Embedding* class name).
+    """
+    try:
+        import torch.nn as nn
+        import torch
+
+        total_bytes = 0
+        rows = []
+
+        for name, mod in model.named_modules():
+            cls = mod.__class__.__name__
+            is_emb = isinstance(mod, nn.Embedding) or ("Embedding" in cls)
+            if not is_emb:
+                continue
+            p = next((p for p in mod.parameters(recurse=False)), None)
+            if p is None:
+                continue
+            b = p.numel() * p.element_size()
+            total_bytes += b
+            rows.append(
+                f"{name} ({cls}) — {p.numel():,} elems, {b/1024**2:.1f} MB, dtype={p.dtype}, device={p.device}"
+            )
+
+        mb = total_bytes / (1024**2)
+        logger.info("[EMB][%s] %d module(s), total ~= %.1f MB", label, len(rows), mb)
+        for r in rows:
+            logger.info("[EMB] %s", r)
+        return mb
+    except Exception as e:
+        logger.error(f"[EMB] Failed to log embedding footprint: {e}")
+        return 0.0

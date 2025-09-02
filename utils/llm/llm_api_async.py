@@ -1,4 +1,7 @@
-"""Async version of llm_api_utils_async.py
+"""
+utils/llm/llm_api_async.py
+
+Async version of llm_api_utils_async.py
 
 This module provides asynchronous utility functions for interacting with various LLM APIs,
 including OpenAI, Anthropic, and Llama3. It handles API calls, validates responses,
@@ -51,11 +54,11 @@ from agent_models.agent_models import (
     ToolCall,
     ToolChain,
 )
-from utils.get_llm_api_keys import (
+from utils.llm.get_llm_api_keys import (
     get_anthropic_api_key,
     get_openai_api_key,
 )
-from utils.llm_response_validators import (
+from utils.llm.llm_response_validators import (
     validate_response_type,
     validate_tool_selection_or_steps,
 )

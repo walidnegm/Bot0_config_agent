@@ -10,7 +10,7 @@ from agent import llm_openai
 from agent.llm_manager import (
     LLMManager,
 )  # must support custom model_path, dtype, device_map
-from utils.find_root_dir import find_project_root
+from utils.system.find_root_dir import find_project_root
 from configs.paths import MODEL_CONFIGS_YAML_FILE
 
 logger = logging.getLogger(__name__)

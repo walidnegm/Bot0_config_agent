@@ -1,11 +1,12 @@
-# agent/model_config_models.py
+"""agent/model_config_models.py"""
+
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Optional, Literal, Union, Dict, Any
 import torch
 from pydantic import BaseModel, Field, field_validator
-from utils.find_root_dir import find_project_root
+from utils.system.find_root_dir import find_project_root
 
 # ------------------------------------------------------------
 # Loader type enum

@@ -4,7 +4,7 @@ import os
 import logging
 from typing import Any, Dict, List
 from pathlib import Path
-from utils.find_root_dir import find_project_root
+from utils.system.find_root_dir import find_project_root
 from agent_models.step_status import StepStatus
 
 logger = logging.getLogger(__name__)
@@ -117,7 +117,7 @@ import os
 import logging
 from typing import Any, Dict, List
 from pathlib import Path
-from utils.find_root_dir import find_project_root
+from utils.system.find_root_dir import find_project_root
 from agent_models.step_status import StepStatus
 
 logger = logging.getLogger(__name__)

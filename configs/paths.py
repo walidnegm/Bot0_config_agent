@@ -1,6 +1,6 @@
 """config/paths.py"""
 
-from utils.find_root_dir import find_project_root
+from utils.system.find_root_dir import find_project_root
 
 # All paths are Path objects
 ROOT_DIR = find_project_root()

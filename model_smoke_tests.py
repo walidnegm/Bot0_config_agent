@@ -32,7 +32,7 @@ from agent_models.agent_models import (
     ToolCall,
     ToolChain,
 )
-from utils.prompt_logger import log_llm_payload
+from utils.llm.llm_prompt_payload_logger import log_llm_payload
 
 logger = logging.getLogger("model_bench")
 

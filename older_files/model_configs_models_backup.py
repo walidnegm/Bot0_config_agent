@@ -1,4 +1,5 @@
-# agent/model_config_models.py
+"""agent/model_config_models.py"""
+
 from __future__ import annotations
 from pathlib import Path
 import torch
@@ -43,7 +44,7 @@ class LlamaCppLoaderConfig(BaseModel):
 
         # If not absolute, assume it's relative to project root
         if not path.is_absolute():
-            from utils.find_root_dir import find_project_root
+            from utils.system.find_root_dir import find_project_root
 
             path = find_project_root() / path
 

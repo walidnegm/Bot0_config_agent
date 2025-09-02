@@ -85,7 +85,7 @@ async def classify_describe_only_async(
         )
 
         # Defensive: prefer .text, fallback to str
-        result = getattr(result_obj, "text", None) or str(result_obj)
+        result = getattr(result_obj, "content", None) or str(result_obj)
         result = result.strip().lower()
         # Remove label if present (defensive)
         if result.startswith("instruction:"):
@@ -140,7 +140,7 @@ async def classify_task_decomposition_async(
             xml_tag=xml_tag,
         )
 
-        result = getattr(result_obj, "text", None) or str(result_obj)
+        result = getattr(result_obj, "content", None) or str(result_obj)
         result = result.strip().lower()
 
         # Defensive clean-up

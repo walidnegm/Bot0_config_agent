@@ -22,8 +22,6 @@ python agent/cli.py --local-model llama_2_7b_chat --once "where are my model fil
 
 * Using python -m
 Simple single step:
-python agent/cli.py --api-model claude-3-haiku-20240307 --once "list all files in my current directory"
-python -m agent/cli --api-model gpt-4.1-nano --once "list all files in my current directory"
 python -m agent.cli --local-model deepseek_coder_1_3b_gptq --once "list all files in the ./agent directory and read the first file."
 python -m agent.cli --api-model gpt-4.1-mini --once "list all files in the ./agent directory and read the first file."
 
@@ -59,7 +57,7 @@ from typing import List, Any, Dict, Mapping, Sequence, Union
 from tabulate import tabulate
 from agent.core import AgentCore
 from agent_models.step_status import StepStatus
-from utils.get_model_info_utils import (
+from utils.model.get_model_info_utils import (
     get_local_model_names,
     get_api_model_names,
     get_local_models_and_help,

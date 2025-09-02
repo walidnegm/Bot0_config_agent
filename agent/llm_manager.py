@@ -47,8 +47,7 @@ Example Usage:
 """
 
 import logging
-from pathlib import Path
-from typing import Optional, Literal, Dict, Any, Sequence, Union, Type, Tuple
+from typing import Any, Optional, Literal, Sequence, Union, Type, Tuple
 import re
 import json
 import gc
@@ -73,12 +72,17 @@ from agent_models.agent_models import (
     ToolCall,
     ToolChain,
 )
-from utils.llm_response_validators import (
-    validate_response_type,
+from utils.llm.llm_response_validators import (
+    validate_intent_response,
     validate_tool_selection_or_steps,
 )
-from utils.find_root_dir import find_project_root
-from utils.gpu_monitor import log_gpu_usage, log_peak_vram_usage
+from utils.system.find_root_dir import find_project_root
+from utils.system.gpu_monitor import (
+    log_gpu_usage,
+    log_peak_vram_usage,
+    log_embedding_footprint,
+)
+from utils.llm.llm_prompt_payload_logger import log_prompt_dict, log_llm_payload
 
 # from utils.coerce_max_memory import coerce_max_memory
 
@@ -110,15 +114,36 @@ def get_llm_manager(model_name):
     return _LLM_MANAGER_CACHE[model_name]
 
 
-def _map_dtype(s: str | None):
-    if not s:
-        return None
-    s = s.lower()
-    return {
-        "float16": torch.float16,
-        "bfloat16": torch.bfloat16,
-        "float32": torch.float32,
-    }.get(s)
+# def _map_dtype(s: str | None):
+#     if not s:
+#         return None
+#     s = s.lower()
+#     return {
+#         "float16": torch.float16,
+#         "bfloat16": torch.bfloat16,
+#         "float32": torch.float32,
+#     }.get(s)
+
+
+# prompt_logger.py (add these)
+def log_messages(logger, messages, level=logging.INFO, mode="yaml"):
+    log_llm_payload(
+        logger,
+        label="LLM Messages",
+        payload={"messages": messages},
+        mode=mode,
+        level=level,
+    )
+
+
+def log_output(logger, label, text, level=logging.DEBUG, mode="yaml"):
+    log_llm_payload(
+        logger,
+        label=label,
+        payload={"raw_output": text},
+        mode=mode,
+        level=level,
+    )
 
 
 class LLMManager:
@@ -227,7 +252,17 @@ class LLMManager:
             {"role": "user", "content": user_prompt},
         ]
 
-        logger.info(f"[LLMManager] Messages:\n{json.dumps(messages, indent=2)}\n")
+        logger.info("[LLMManager] Messages:")
+
+        # Debugging
+        log_prompt_dict(
+            logger,
+            label="[LLMManager] Messages",
+            system_prompt=messages[0].get("content", ""),
+            user_prompt=messages[1].get("content", ""),
+            mode="yaml",  # or "json" if you prefer
+            level=logging.INFO,
+        )
         logger.debug(f"Generating with {self.loader}")
 
         # ☑️ log VRAM before inference
@@ -725,7 +760,11 @@ class LLMManager:
         )
 
         # Get the model name for logging
-        model_name = getattr(config, "model_id_or_path", "unknown")
+        try:
+            model_id, _ = self._extract_model_id(config)
+            model_name = model_id
+        except Exception:
+            model_name = getattr(config, "model_id_or_path", "unknown")
 
         logger.info(
             f"[LLMManager] ✅ Using model: {model_name} ({self.loader}) on {self.device}"
@@ -750,6 +789,22 @@ class LLMManager:
             raise ValueError(f"Unsupported loader: {self.loader}")
 
         log_gpu_usage(f"[LLMManager] after loading model {model_name}")  # ☑️ track vram
+
+        # ---- ✅ embedding-specific checkpoint (generic across all loaders) ----
+        # * This is for log embedding VRAM usage
+        if getattr(self, "model", None) is not None and self.loader != "llama_cpp":
+            try:
+                # totals across all embedding modules
+                log_embedding_footprint(self.model, label=f"{model_name}")
+
+                # optionally, confirm the input embedding exists and log again
+                emb = getattr(self.model, "get_input_embeddings", lambda: None)()
+                if emb is not None:
+                    log_embedding_footprint(
+                        self.model, label=f"{model_name}:input_emb_only"
+                    )
+            except Exception as e:
+                logger.debug(f"[LLMManager] Embedding logging skipped: {e}")
 
     def _format_prompt(self, user_prompt: str, system_prompt: str = "") -> str:
         return f"System: {system_prompt}\nUser: {user_prompt}\nAssistant:"
@@ -805,7 +860,13 @@ class LLMManager:
             )
 
         decoded = self.tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
-        logger.debug(f"[AWQ] 🧪 Decoded output:\n{repr(decoded)}")
+        log_llm_payload(
+            logger,
+            label="[AWQ] 🧪 Raw decoded output",
+            payload={"output": decoded},
+            mode="yaml",
+            level=logging.DEBUG,
+        )
 
         if expected_res_type == "json":
             match = re.search(r"\[\s*\{.*?\}\s*\]", decoded, re.DOTALL)
@@ -857,7 +918,13 @@ class LLMManager:
             )
 
         decoded = self.tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
-        logger.debug(f"[GPTQ] 🧪 Raw decoded output:\n{repr(decoded)}")
+        log_llm_payload(
+            logger,
+            label="[GPTQ] 🧪 Raw decoded output",
+            payload={"output": decoded},
+            mode="yaml",
+            level=logging.DEBUG,
+        )
 
         if decoded.startswith(full_prompt):
             decoded = decoded[len(full_prompt) :].strip()
@@ -923,7 +990,16 @@ class LLMManager:
         output = self.model.create_chat_completion(**kwargs)
 
         content = output["choices"][0]["message"]["content"].strip()
-        logger.debug(f"[llama_cpp] 🧪 Raw output:\n{repr(content)}")
+
+        # logger.debug(f"[llama_cpp] 🧪 Raw output:\n{repr(content)}")
+        # Debug in nice foramt
+        log_llm_payload(
+            logger,
+            label="[llama_cpp] 🧪 Raw output",
+            payload={"output": content},
+            mode="yaml",  # or "text" if you want plain
+            level=logging.DEBUG,
+        )
 
         if expected_res_type == "json":
             match = re.search(r"\[\s*\{.*?\}\s*\]", content, re.DOTALL)
@@ -975,7 +1051,13 @@ class LLMManager:
             )
 
         decoded = self.tokenizer.decode(outputs[0], skip_special_tokens=True).strip()
-        logger.debug(f"[Transformers] 🧪 Decoded output:\n{repr(decoded)}")
+        log_llm_payload(
+            logger,
+            label="[Transformers] 🧪 Raw decoded output",
+            payload={"output": decoded},
+            mode="yaml",
+            level=logging.DEBUG,
+        )
 
         if decoded.startswith(full_prompt):
             decoded = decoded[len(full_prompt) :].strip()
