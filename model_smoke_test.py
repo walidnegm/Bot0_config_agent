@@ -17,8 +17,8 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from agent.llm_manager import LLMManager
-from utils.llm.llm_prompt_payload_logger import log_prompt_dict
+from bot0_config_agent.agent.llm_manager import LLMManager
+from bot0_config_agent.utils.llm.llm_prompt_payload_logger import log_prompt_dict
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(

@@ -1,0 +1,215 @@
+# * Local LLM Models Only!
+
+# ===========================================================
+# Model Config Schema (for documentation only)
+#
+# loader:            Which loader to use (gptq, awq, transformers, llama_cpp, etc.)
+# model_id:          HF Hub repo or reference name (for clarity)
+# quantization_method:
+#   - GPTQ, AWQ, GGUF, FP (full precision)
+#
+# load_config:       Passed directly to the model loader (affects loading/placement)
+#   model_id_or_path: Local path or HF repo
+#   device:          "cuda", "cpu", "auto"            # (for single-device paths)
+#   device_map:      "auto" or explicit map           # (preferred when sharding/offloading)
+#   torch_dtype:     float16 | bfloat16 | float32
+#   max_memory:      {0: "3.5GiB", "cpu": "16GiB"}    # optional (enables CPU spill)
+#   offload_folder:  path for CPU offload cache       # optional
+#   trust_remote_code: true/false                     # optional
+#   use_safetensors: true/false                       # transformers only, optional
+#
+# quant_config:
+#   AWQ:   { fuse_layers: true|false }                # load-time knob for AWQ
+#   GPTQ:  {}                                         # typically empty for pre-quantized loads
+#   FP:    {}                                         # not applicable
+#   GGUF:  {}                                         # not applicable
+#
+# generation_config: Passed to .generate() or llama.cpp equivalent
+#   max_new_tokens / max_tokens: int
+#   temperature:     float
+#   top_p:           float
+#   stop:            [string, ...] (optional)
+#
+# Order: load_config → quant_config → generation_config
+# ===========================================================
+
+qwen3_1_7b_instruct_gptq:
+  loader: gptq
+  model_id: kaitchup/Qwen3-1.7B-autoround-4bit-gptq
+  quantization_method: GPTQ
+  load_config:
+    model_id_or_path: models/qwen3_1_7b_instruct_gptq
+    device_map: auto
+    max_memory:
+      0: "4.0GiB"
+      cpu: "16GiB"
+    torch_dtype: float16
+    offload_folder: offload
+  quant_config: {}
+  generation_config:
+    max_new_tokens: 512
+    temperature: 0.4
+    top_p: 0.9
+
+qwen3_4b_awq:
+  loader: awq
+  model_id: Qwen/Qwen3-4B-AWQ
+  quantization_method: AWQ
+  load_config:
+    model_id_or_path: models/qwen3_4b_awq
+    device_map: auto
+    max_memory:
+      0: "4.0GiB"
+      cpu: "16GiB"
+    torch_dtype: float16
+    offload_folder: offload
+  quant_config:
+    fuse_layers: true
+  generation_config:
+    max_new_tokens: 512
+    temperature: 0.4
+    top_p: 0.9
+
+gemma_2_2b_gptq:
+  loader: gptq
+  model_id: shuyuej/gemma-2-2b-it-GPTQ
+  quantization_method: GPTQ
+  load_config:
+    model_id_or_path: models/gemma_2_2b_gptq
+    device_map: auto
+    max_memory:
+      0: "4.0GiB"
+      cpu: "16GiB"
+    torch_dtype: float16
+    offload_folder: offload
+  quant_config: {}
+  generation_config:
+    max_new_tokens: 512
+    temperature: 0.2
+    top_p: 0.9
+
+deepseek_coder_1_3b_gptq:
+  loader: gptq
+  model_id: TheBloke/deepseek-coder-1.3b-instruct-GPTQ
+  quantization_method: GPTQ
+  load_config:
+    model_id_or_path: models/deepseek_coder_1_3b_gptq
+    device_map: auto
+    max_memory:
+      0: "4.0GiB"
+      cpu: "16GiB"
+    torch_dtype: float16
+    offload_folder: offload
+  quant_config: {}
+  generation_config:
+    max_new_tokens: 512
+    temperature: 0.4
+    top_p: 0.95
+
+lfm2_1_2b:
+  loader: transformers
+  model_id: LiquidAI/LFM2-1.2B
+  quantization_method: FP
+  load_config:
+    model_id_or_path: LiquidAI/LFM2-1.2B
+    device: auto
+    torch_dtype: bfloat16
+    use_safetensors: true
+    trust_remote_code: true
+    low_cpu_mem_usage: true
+    offload_folder: offload
+  quant_config: {}
+  generation_config:
+    max_new_tokens: 512
+    temperature: 0.0
+    top_p: 0.95
+
+phi_3_5_mini_awq:
+  loader: awq
+  model_id: thesven/Phi-3.5-mini-instruct-awq
+  quantization_method: AWQ
+  load_config:
+    model_id_or_path: models/phi_3_5_mini_awq
+    device_map: auto
+    max_memory:
+      0: "4.0GiB"
+      cpu: "16GiB"
+    torch_dtype: float16
+    offload_folder: offload
+  quant_config:
+    fuse_layers: true
+  generation_config:
+    max_new_tokens: 128
+    temperature: 0.2
+    top_p: 0.95
+
+llama_2_7b_chat_gptq:
+  loader: gptq
+  model_id: TheBloke/Llama-2-7B-Chat-GPTQ
+  quantization_method: GPTQ
+  load_config:
+    model_id_or_path: models/llama_2_7b_chat_gptq
+    device_map: auto
+    max_memory:
+      0: "4.0GiB"
+      cpu: "16GiB"
+    torch_dtype: float16
+    offload_folder: offload
+  quant_config: {}
+  generation_config:
+    max_new_tokens: 512
+    temperature: 0.2
+    top_p: 0.9
+
+llama_3_2_3b_gptq:
+  loader: gptq
+  model_id: shuyuej/Llama-3.2-3B-Instruct-GPTQ
+  quantization_method: GPTQ
+  load_config:
+    model_id_or_path: models/llama_3_2_3b_gptq
+    device_map: auto
+    max_memory:
+      0: "4.0GiB"
+      cpu: "16GiB"
+    torch_dtype: float16
+    offload_folder: offload
+  quant_config: {}
+  generation_config:
+    max_new_tokens: 512
+    temperature: 0.2
+    top_p: 0.95
+
+llama3_8b:
+  loader: transformers
+  model_id: meta-llama/Meta-Llama-3-8B-Instruct
+  quantization_method: FP
+  load_config:
+    model_id_or_path: meta-llama/Meta-Llama-3-8B-Instruct
+    device: auto
+    torch_dtype: float16
+    use_safetensors: true
+  quant_config: {}
+  generation_config:
+    max_new_tokens: 512
+    temperature: 0.2
+    top_p: 0.9
+
+tinyllama_1_1b_chat_gguf:
+  loader: llama_cpp
+  model_id: TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF
+  quantization_method: GGUF
+  load_config:
+    model_id_or_path: models/tinyllama_1_1b_chat_gguf/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
+    n_ctx: 4096
+    n_gpu_layers: -1
+    chat_format: zephyr
+    verbose: true
+  generation_config:
+    max_tokens: 512   # llama-cpp uses max_tokens instead of max_new_tokens
+    temperature: 0.3
+    top_p: 0.95
+
+# local LLMs saved in project should be under /models/"model_name" dir, such as:
+# - models/tinyllama_1_1b_chat_gguf/
+# - models/qwen3_4b_awq/
+# ...

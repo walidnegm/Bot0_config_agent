@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 import yaml
 from jinja2 import Environment, FileSystemLoader
-from configs.paths import AGENT_PROMPTS
-from tools.workbench.tool_registry import ToolRegistry
+from bot0_config_agent.configs.paths import AGENT_PROMPTS
+from bot0_config_agent.tools.workbench.tool_registry import ToolRegistry
 
 TEMPLATE_PATH = AGENT_PROMPTS
 
