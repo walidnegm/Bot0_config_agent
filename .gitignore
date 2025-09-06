@@ -159,7 +159,7 @@ configs/overrides/*
 sandbox/ # Ignore modules still experimenting
 myenv/  # If your virtualenv is inside the project (though it's better outside)
 documents/ # Private documents
-xf_tools.ipynb
+src/bot0_config_agent/xf_tools.ipynb
 inspect_local_llms.ipynb
 *.pt  # Torch models or similar, if present
 *.bin  # Binary files, e.g., model checkpoints
