@@ -10,8 +10,8 @@ import asyncio
 from bot0_config_agent.agent.planner import Planner
 from bot0_config_agent.agent.tool_chain_executor import ToolChainExecutor
 from bot0_config_agent.agent_models.step_state import StepState
-from bot0_config_agent.tools.workbench.tool_registry import ToolRegistry
-from bot0_config_agent.tools.workbench.tool_models import ToolResult, ToolResults
+from bot0_config_agent.tools.configs.tool_registry import ToolRegistry
+from bot0_config_agent.tools.configs.tool_models import ToolResult, ToolResults
 
 logger = logging.getLogger(__name__)
 

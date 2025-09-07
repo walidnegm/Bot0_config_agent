@@ -1,6 +1,9 @@
-# tools/check_cuda.py
-# -------------------
-# Probe CUDA availability via PyTorch and (optionally) nvidia-smi.
+"""
+bot0_config_agent/tools/tool_scripts/check_cuda.py
+-------------------
+
+Probe CUDA availability via PyTorch and (optionally) nvidia-smi.
+"""
 
 import subprocess
 import torch

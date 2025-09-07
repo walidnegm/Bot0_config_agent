@@ -1,4 +1,4 @@
-"""tools/set_scope.py"""
+"""bot0_config_agent/tools/tool_scripts/set_scope.py"""
 
 from typing import List, Optional, Dict, Any
 from bot0_config_agent.agent_models.step_status import StepStatus

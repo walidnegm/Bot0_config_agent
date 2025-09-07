@@ -1,5 +1,5 @@
 """
-tools/find_dir_size.py
+bot0_config_agent/tools/tool_scripts/tool_scripts/find_dir_size.py
 
 Tool to compute the total size and number of files in a directory.
 """

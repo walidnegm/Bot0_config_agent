@@ -1,4 +1,4 @@
-"""tools/list_project_files.py"""
+"""bot0_config_agent/tools/tool_scripts/list_project_files.py"""
 
 import os
 import logging

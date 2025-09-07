@@ -1,4 +1,4 @@
-"""tools/retrieval_tool.py
+"""bot0_config_agent/tools/tool_scripts/retrieval_tool.py
 
 Scan a directory for config-like files and summarize keys / potential secrets.
 """

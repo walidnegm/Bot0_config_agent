@@ -38,13 +38,13 @@ qwen3_1_7b_instruct_gptq:
   model_id: kaitchup/Qwen3-1.7B-autoround-4bit-gptq
   quantization_method: GPTQ
   load_config:
-    model_id_or_path: models/qwen3_1_7b_instruct_gptq
+    model_id_or_path: "<MODELS_DIR>/qwen3_1_7b_instruct_gptq"
     device_map: auto
     max_memory:
       0: "4.0GiB"
       cpu: "16GiB"
     torch_dtype: float16
-    offload_folder: offload
+    offload_folder: "<OFFLOAD_DIR>"
   quant_config: {}
   generation_config:
     max_new_tokens: 512
@@ -56,13 +56,13 @@ qwen3_4b_awq:
   model_id: Qwen/Qwen3-4B-AWQ
   quantization_method: AWQ
   load_config:
-    model_id_or_path: models/qwen3_4b_awq
+    model_id_or_path: "<MODELS_DIR>/qwen3_4b_awq"
     device_map: auto
     max_memory:
       0: "4.0GiB"
       cpu: "16GiB"
     torch_dtype: float16
-    offload_folder: offload
+    offload_folder: "<OFFLOAD_DIR>"
   quant_config:
     fuse_layers: true
   generation_config:
@@ -75,13 +75,13 @@ gemma_2_2b_gptq:
   model_id: shuyuej/gemma-2-2b-it-GPTQ
   quantization_method: GPTQ
   load_config:
-    model_id_or_path: models/gemma_2_2b_gptq
+    model_id_or_path: "<MODELS_DIR>/gemma_2_2b_gptq"
     device_map: auto
     max_memory:
       0: "4.0GiB"
       cpu: "16GiB"
     torch_dtype: float16
-    offload_folder: offload
+    offload_folder: "<OFFLOAD_DIR>"
   quant_config: {}
   generation_config:
     max_new_tokens: 512
@@ -93,13 +93,13 @@ deepseek_coder_1_3b_gptq:
   model_id: TheBloke/deepseek-coder-1.3b-instruct-GPTQ
   quantization_method: GPTQ
   load_config:
-    model_id_or_path: models/deepseek_coder_1_3b_gptq
+    model_id_or_path: "<MODELS_DIR>/deepseek_coder_1_3b_gptq"
     device_map: auto
     max_memory:
       0: "4.0GiB"
       cpu: "16GiB"
     torch_dtype: float16
-    offload_folder: offload
+    offload_folder: "<OFFLOAD_DIR>"
   quant_config: {}
   generation_config:
     max_new_tokens: 512
@@ -117,25 +117,25 @@ lfm2_1_2b:
     use_safetensors: true
     trust_remote_code: true
     low_cpu_mem_usage: true
-    offload_folder: offload
+    offload_folder: "<OFFLOAD_DIR>"
   quant_config: {}
   generation_config:
-    max_new_tokens: 512
-    temperature: 0.0
-    top_p: 0.95
+    max_new_tokens: 1024  # Set it a bit on the high side
+    temperature: 0.3
+    top_p: 0.95 # keep it on the looser side
 
 phi_3_5_mini_awq:
   loader: awq
   model_id: thesven/Phi-3.5-mini-instruct-awq
   quantization_method: AWQ
   load_config:
-    model_id_or_path: models/phi_3_5_mini_awq
+    model_id_or_path: "<MODELS_DIR>/phi_3_5_mini_awq"
     device_map: auto
     max_memory:
       0: "4.0GiB"
       cpu: "16GiB"
     torch_dtype: float16
-    offload_folder: offload
+    offload_folder: "<OFFLOAD_DIR>"
   quant_config:
     fuse_layers: true
   generation_config:
@@ -148,13 +148,13 @@ llama_2_7b_chat_gptq:
   model_id: TheBloke/Llama-2-7B-Chat-GPTQ
   quantization_method: GPTQ
   load_config:
-    model_id_or_path: models/llama_2_7b_chat_gptq
+    model_id_or_path: "<MODELS_DIR>/llama_2_7b_chat_gptq"
     device_map: auto
     max_memory:
       0: "4.0GiB"
       cpu: "16GiB"
     torch_dtype: float16
-    offload_folder: offload
+    offload_folder: "<OFFLOAD_DIR>"
   quant_config: {}
   generation_config:
     max_new_tokens: 512
@@ -166,13 +166,13 @@ llama_3_2_3b_gptq:
   model_id: shuyuej/Llama-3.2-3B-Instruct-GPTQ
   quantization_method: GPTQ
   load_config:
-    model_id_or_path: models/llama_3_2_3b_gptq
+    model_id_or_path: "<MODELS_DIR>/llama_3_2_3b_gptq"
     device_map: auto
     max_memory:
       0: "4.0GiB"
       cpu: "16GiB"
     torch_dtype: float16
-    offload_folder: offload
+    offload_folder: "<OFFLOAD_DIR>"
   quant_config: {}
   generation_config:
     max_new_tokens: 512
@@ -199,7 +199,7 @@ tinyllama_1_1b_chat_gguf:
   model_id: TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF
   quantization_method: GGUF
   load_config:
-    model_id_or_path: models/tinyllama_1_1b_chat_gguf/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
+    model_id_or_path: "<MODELS_DIR>/tinyllama_1_1b_chat_gguf/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
     n_ctx: 4096
     n_gpu_layers: -1
     chat_format: zephyr

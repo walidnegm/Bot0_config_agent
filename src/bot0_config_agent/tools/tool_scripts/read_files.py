@@ -1,4 +1,4 @@
-"""tools/read_files.py"""
+"""bot0_config_agent/tools/tool_scripts/read_files.py"""
 
 from pathlib import Path
 from typing import List

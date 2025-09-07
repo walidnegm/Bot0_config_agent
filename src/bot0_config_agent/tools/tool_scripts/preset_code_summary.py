@@ -1,5 +1,5 @@
 """
-tools/preset_code_summary.py
+bot0_config_agent/tools/tool_scripts/preset_code_summary.py
 
 Create an LLM-ready prompt for summarizing code. Consumes file contents (from read_files)
 and emits a single prompt string tailored for codebases (classes, functions, imports, etc.).
@@ -11,7 +11,7 @@ from typing import List, Dict, Any, Optional, Literal
 from textwrap import shorten
 
 # From project modules
-from bot0_config_agent.tools.workbench.tool_models import FileContent
+from bot0_config_agent.tools.configs.tool_models import FileContent
 from bot0_config_agent.agent_models.step_status import StepStatus
 
 

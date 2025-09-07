@@ -1,3 +1,5 @@
+"""bot0_config_agent/tools/tool_scripts/find_files_by_keywords.py"""
+
 import os
 from bot0_config_agent.agent_models.step_status import StepStatus
 

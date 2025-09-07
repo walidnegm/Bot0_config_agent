@@ -13,11 +13,16 @@ LOCAL_OVERRIDE_MODEL_CONFIGS_YAML_FILE = (
     CONFIGS_DIR / "overrides" / "model_configs.local.yaml"
 )
 
+MODELS_DIR = BOT0_CONFIG_AGENT_DIR / "models"
+
 PROMPTS_DIR = BOT0_CONFIG_AGENT_DIR / "prompts"
 AGENT_PROMPTS = PROMPTS_DIR / "agent_prompts.yaml.j2"
 
 TOOLS_DIR = BOT0_CONFIG_AGENT_DIR / "tools"
-WORKBENCH_DIR = TOOLS_DIR / "workbench"
-TOOL_REGISTRY = WORKBENCH_DIR / "tool_registry.json"
-TOOL_TRANSFORMATION = WORKBENCH_DIR / "tool_transformation.json"
-TOOL_TRANSFORMATION_FUNCTIONS = WORKBENCH_DIR / "tool_transformation.py"
+TOOL_CONFIGS_FILE = TOOLS_DIR / "configs"
+TOOL_REGISTRY = TOOL_CONFIGS_FILE / "tool_registry.json"
+TOOL_TRANSFORMATION = TOOL_CONFIGS_FILE / "tool_transformation.json"
+TOOL_TRANSFORMATION_FUNCTIONS = TOOL_CONFIGS_FILE / "tool_transformation.py"
+
+###########################
+OFFLOAD_DIR = ROOT_DIR / "offload"

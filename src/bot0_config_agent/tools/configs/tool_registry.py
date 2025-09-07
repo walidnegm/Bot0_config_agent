@@ -13,8 +13,8 @@ What this module does
 
 Quick start
 -----------
-from bot0_config_agent.tools.workbench.tool_registry import ToolRegistry
-from bot0_config_agent.tools.workbench.tool_models import ToolOutput
+from bot0_config_agent.tools.configs.tool_registry import ToolRegistry
+from bot0_config_agent.tools.configs.tool_models import ToolOutput
 from bot0_config_agent.agent_models.step_status import StepStatus
 
 registry = ToolRegistry()
@@ -45,7 +45,7 @@ from pathlib import Path
 from typing import Any, cast, Callable, Dict, Optional, Tuple
 from pydantic import BaseModel, ValidationError
 from bot0_config_agent.agent_models.step_status import StepStatus
-from bot0_config_agent.tools.workbench.tool_models import (
+from bot0_config_agent.tools.configs.tool_models import (
     ToolSpec,
     ToolOutput,
     ToolTransformation,

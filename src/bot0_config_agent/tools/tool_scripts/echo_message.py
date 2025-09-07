@@ -1,4 +1,4 @@
-# tools/echo_message.py
+# bot0_config_agent/tools/tool_scripts/tool_scripts/echo_message.py
 # ---------------------
 # Simple echo tool with optional JSON pretty-print.
 

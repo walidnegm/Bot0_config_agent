@@ -13,7 +13,7 @@ import logging
 from typing import Optional, Sequence, Union, Type, Literal
 import asyncio
 from pydantic import BaseModel
-from bot0_config_agent.tools.workbench.tool_registry import ToolRegistry
+from bot0_config_agent.tools.configs.tool_registry import ToolRegistry
 
 from bot0_config_agent.agent.intent_classifiers import (
     classify_describe_only_async,

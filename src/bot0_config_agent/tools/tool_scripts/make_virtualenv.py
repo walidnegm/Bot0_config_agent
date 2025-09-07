@@ -1,6 +1,8 @@
-# tools/make_virtualenv.py
+# bot0_config_agent/tools/tool_scripts/make_virtualenv.py
 # ------------------------
 # Create a Python virtual environment at a given directory.
+
+
 import os
 import venv
 from bot0_config_agent.agent_models.step_status import StepStatus

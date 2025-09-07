@@ -2,7 +2,7 @@
   "aggregate_file_content": {
     "name": "aggregate_file_content",
     "description": "Combines multiple file contents from prior steps for summarization.",
-    "import_path": "bot0_config_agent.tools.aggregate_file_content.aggregate_file_content",
+    "import_path": "bot0_config_agent.tools.tool_scripts.aggregate_file_content.aggregate_file_content",
     "parameters": {
       "type": "object",
       "properties": {
@@ -20,7 +20,7 @@
   "check_cuda": {
     "name": "check_cuda",
     "description": "Checks whether CUDA is available using PyTorch.",
-    "import_path": "bot0_config_agent.tools.check_cuda.check_cuda",
+    "import_path": "bot0_config_agent.tools.tool_scripts.check_cuda.check_cuda",
     "parameters": { "type": "object", "properties": {}, "required": [] },
     "input_model": "CheckCudaInput",
     "output_model": "CheckCudaResult"
@@ -28,7 +28,7 @@
   "echo_message": {
     "name": "echo_message",
     "description": "Returns a message (for debugging or testing).",
-    "import_path": "bot0_config_agent.tools.echo_message.echo_message",
+    "import_path": "bot0_config_agent.tools.tool_scripts.echo_message.echo_message",
     "parameters": {
       "type": "object",
       "properties": {
@@ -42,7 +42,7 @@
   "find_dir_size": {
     "name": "find_dir_size",
     "description": "Counts the number of files and the total size (in bytes and MB) of all files in a directory (recursively).",
-    "import_path": "bot0_config_agent.tools.find_dir_size.find_dir_size",
+    "import_path": "bot0_config_agent.tools.tool_scripts.find_dir_size.find_dir_size",
     "parameters": {
       "type": "object",
       "properties": {
@@ -56,7 +56,7 @@
   "find_dir_structure": {
     "name": "find_dir_structure",
     "description": "Recursively returns the directory structure starting from a root path.",
-    "import_path": "bot0_config_agent.tools.find_dir_structure.find_dir_structure",
+    "import_path": "bot0_config_agent.tools.tool_scripts.find_dir_structure.find_dir_structure",
     "parameters": {
       "type": "object",
       "properties": {
@@ -76,7 +76,7 @@
   "find_files_by_keywords": {
     "name": "find_files_by_keywords",
     "description": "Searches for files containing the keyword in their name under the given directory.",
-    "import_path": "bot0_config_agent.tools.find_files_by_keywords.find_files_by_keywords",
+    "import_path": "bot0_config_agent.tools.tool_scripts.find_files_by_keywords.find_files_by_keywords",
     "parameters": {
       "type": "object",
       "properties": {
@@ -95,7 +95,7 @@
   "list_project_files": {
     "name": "list_project_files",
     "description": "Recursively scans a project directory for files, supporting directory exclusion and file type inclusion filters. Returns files as a list of string paths.",
-    "import_path": "bot0_config_agent.bot0_config_agent.tools.list_project_files.list_project_files",
+    "import_path": "bot0_config_agent.tools.tool_scripts.list_project_files.list_project_files",
     "parameters": {
       "type": "object",
       "properties": {
@@ -119,7 +119,7 @@
   "llm_response_async": {
     "name": "llm_response_async",
     "description": "Sends a prompt to the LLM and returns the generated natural language response.",
-    "import_path": "bot0_config_agent.tools.llm_response_async.llm_response_async",
+    "import_path": "bot0_config_agent.tools.tool_scripts.llm_response_async.llm_response_async",
     "parameters": {
       "type": "object",
       "properties": {
@@ -133,7 +133,7 @@
   "locate_files": {
     "name": "locate_files",
     "description": "Searches common development directories (home, project root) for a file with the exact name provided.",
-    "import_path": "bot0_config_agent.tools.locate_files.locate_files",
+    "import_path": "bot0_config_agent.tools.tool_scripts.locate_files.locate_files",
     "parameters": {
       "type": "object",
       "properties": {
@@ -147,7 +147,7 @@
   "make_virtualenv": {
     "name": "make_virtualenv",
     "description": "Creates a Python virtual environment at a path.",
-    "import_path": "bot0_config_agent.tools.make_virtualenv.make_virtualenv",
+    "import_path": "bot0_config_agent.tools.tool_scripts.make_virtualenv.make_virtualenv",
     "parameters": {
       "type": "object",
       "properties": {
@@ -161,7 +161,7 @@
   "preset_code_summary": {
     "name": "preset_code_summary",
     "description": "Builds an LLM-ready prompt to summarize/review/document code files.",
-    "import_path": "bot0_config_agent.tools.preset_code_summary.preset_code_summary",
+    "import_path": "bot0_config_agent.tools.tool_scripts.preset_code_summary.preset_code_summary",
     "parameters": {
       "type": "object",
       "properties": {
@@ -208,7 +208,7 @@
   "read_files": {
     "name": "read_files",
     "description": "Reads the contents of one or more files and returns them as a list of file-content mappings.",
-    "import_path": "bot0_config_agent.tools.read_files.read_files",
+    "import_path": "bot0_config_agent.tools.tool_scripts.read_files.read_files",
     "parameters": {
       "type": "object",
       "properties": {
@@ -227,7 +227,7 @@
   "retrieval_tool": {
     "name": "retrieval_tool",
     "description": "Searches environment variables, .env files, and project files for secrets based on query intent.",
-    "import_path": "bot0_config_agent.tools.retrieval_tool.retrieval_tool",
+    "import_path": "bot0_config_agent.tools.tool_scripts.retrieval_tool.retrieval_tool",
     "parameters": {
       "type": "object",
       "properties": {
@@ -241,7 +241,7 @@
   "seed_parser": {
     "name": "seed_parser",
     "description": "Parses plaintext files into key-value pairs.",
-    "import_path": "bot0_config_agent.tools.seed_parser.seed_parser",
+    "import_path": "bot0_config_agent.tools.tool_scripts.seed_parser.seed_parser",
     "parameters": {
       "type": "object",
       "properties": {
@@ -255,7 +255,7 @@
   "set_scope": {
     "name": "set_scope",
     "description": "Sets project root and optional branch subpaths (relative to root) for subsequent tools.",
-    "import_path": "bot0_config_agent.tools.set_scope.set_scope",
+    "import_path": "bot0_config_agent.tools.tool_scripts.set_scope.set_scope",
     "parameters": {
       "type": "object",
       "properties": {
@@ -274,7 +274,7 @@
   "select_files": {
     "name": "select_files",
     "description": "Filters and slices a provided list of file paths by extension and name substrings, with optional sorting and pagination. Returns the selected paths and metadata.",
-    "import_path": "bot0_config_agent.tools.select_files.select_files",
+    "import_path": "bot0_config_agent.tools.tool_scripts.select_files.select_files",
     "parameters": {
       "type": "object",
       "properties": {
@@ -313,7 +313,7 @@
   "summarize_config": {
     "name": "summarize_config",
     "description": "Summarizes known config files (.env, config.yaml, etc.) and lists important keys.",
-    "import_path": "bot0_config_agent.tools.summarize_config.summarize_config",
+    "import_path": "bot0_config_agent.tools.tool_scripts.summarize_config.summarize_config",
     "parameters": { "type": "object", "properties": {}, "required": [] },
     "input_model": "SummarizeConfigInput",
     "output_model": "SummarizeConfigResult"
@@ -321,7 +321,7 @@
   "summarize_files": {
     "name": "summarize_files",
     "description": "Summarizes a list of config files for keys and possible secrets.",
-    "import_path": "bot0_config_agent.tools.summarize_files.summarize_files",
+    "import_path": "bot0_config_agent.tools.tool_scripts.summarize_files.summarize_files",
     "parameters": {
       "type": "object",
       "properties": {

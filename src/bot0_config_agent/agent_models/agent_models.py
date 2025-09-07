@@ -1,5 +1,5 @@
 """
-File: agent_response_models.py
+File: agent_models.py
 Last updated: 2025-07-30
 
 Pydantic models for validating and structuring LLM/agent responses for

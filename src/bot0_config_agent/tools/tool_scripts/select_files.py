@@ -1,5 +1,5 @@
 """
-tools/select_files.py
+bot0_config_agent/tools/tool_scripts/select_files.py
 
 Utility to filter, sort, and slice a list of file paths without reading file contents.
 
@@ -44,8 +44,12 @@ Return shape
 """
 
 from __future__ import annotations
+import logging
 from typing import Any, Dict, List, Optional, Iterable
 from pathlib import Path
+
+
+logger = logging.getLogger(__name__)
 
 
 def _norm_ext(ext: str) -> str:

@@ -8,7 +8,7 @@ import yaml
 from jinja2 import Environment, FileSystemLoader, Undefined
 
 from bot0_config_agent.configs.paths import AGENT_PROMPTS
-from bot0_config_agent.tools.workbench.tool_registry import ToolRegistry
+from bot0_config_agent.tools.configs.tool_registry import ToolRegistry
 
 
 logger = logging.getLogger(__name__)

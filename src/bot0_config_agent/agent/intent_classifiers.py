@@ -10,7 +10,7 @@ a more complex task.
 
 Example Usage:
     import asyncio
-    from agent.planner import Planner
+    from bot0_config_agent.agent.planner import Planner
 
     import logging
     logging.basicConfig(level=logging.INFO)
@@ -44,6 +44,7 @@ from bot0_config_agent.prompts.load_agent_prompts import (
     load_describe_only_prompt,
     load_task_decomposition_prompt,
 )
+from bot0_config_agent.utils.llm.llm_prompt_payload_logger import log_prompt_dict
 
 if TYPE_CHECKING:
     from bot0_config_agent.agent.planner import Planner
@@ -123,20 +124,32 @@ async def classify_task_decomposition_async(
     """
     try:
         cfg = load_task_decomposition_prompt(user_task=instruction)
-        full_prompt = (
-            cfg["system_prompt"].strip()
-            + "\n"
-            + cfg["single_vs_multi_step_prompt"].strip()
-            + "\n"
-            + cfg["user_task_prompt"].strip()
+
+        # Build prompts separately (no concatenation into system)
+        system_prompt = (cfg.get("system_prompt") or "").strip()
+
+        user_prompt = "\n".join(
+            p
+            for p in [
+                cfg.get("single_vs_multi_step_prompt", "").strip(),
+                cfg.get("user_task_prompt", "").strip(),
+            ]
+            if p
         )
 
-        # Log full prompt before calling LLM
-        logger.info("[LLMManager] Full Prompt:\n%s", json.dumps(full_prompt, indent=2))
+        # Log full prompt before calling LLM - use structured logger
+        log_prompt_dict(
+            logger,
+            label="LLMManager",
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            mode="yaml",  # or "human"/"json"
+            level=logging.INFO,
+        )
 
         result_obj = await planner.dispatch_llm_async(
-            user_prompt=full_prompt,
-            system_prompt="",  # Not needed; included in template
+            system_prompt=system_prompt,  # Not needed; included in template
+            user_prompt=user_prompt,
             response_type="text",
             response_model=TextResponse,
             xml_tag=xml_tag,

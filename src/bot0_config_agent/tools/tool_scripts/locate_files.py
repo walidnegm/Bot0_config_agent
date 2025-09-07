@@ -1,5 +1,5 @@
 """
-tools/locate_file.py
+bot0_config_agent/tools/tool_scripts/locate_file.py
 
 Locate a file by exact name under common roots.
 """

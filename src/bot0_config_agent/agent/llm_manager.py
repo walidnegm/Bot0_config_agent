@@ -36,7 +36,7 @@ inference efficiency.
 * - seperated generate / generate for each loader type (awq, gguf, gptq)
 
 Example Usage:
-    >>> from agent.llm_manager import LLMManager
+    >>> from bot0_config_agent.agent.llm_manager import LLMManager
 
         # Load a model named 'gptq_llama' from models.yaml
         llm = LLMManager(model_name="gptq_llama")

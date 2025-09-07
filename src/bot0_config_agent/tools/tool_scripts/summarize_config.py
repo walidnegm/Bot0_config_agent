@@ -1,4 +1,4 @@
-"""tools/summarize_config.py
+"""bot0_config_agent/tools/tool_scripts/summarize_config.py
 
 Scan a directory for config-like files and summarize top-level keys and
 potential secret-looking fields.

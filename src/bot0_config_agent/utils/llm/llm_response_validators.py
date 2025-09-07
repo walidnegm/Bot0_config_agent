@@ -21,7 +21,7 @@ Key functions:
         (list of tool call dicts).
     - validate_intent_response: Validates intent classification output.
 
-All return Pydantic model instances from agent_response_models.py.
+All return Pydantic model instances from bot0_config_agent.agent_response_models.py.
 """
 
 import re

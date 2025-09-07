@@ -1,5 +1,5 @@
 """
-tools/aggregate_file_content.py
+bot0_config_agent/tools/tool_scripts/aggregate_file_content.py
 
 Combine multiple file contents from prior steps for summarization
 """

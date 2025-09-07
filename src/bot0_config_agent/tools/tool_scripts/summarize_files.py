@@ -1,13 +1,16 @@
-"""tools/summarize_files.py
+"""bot0_config_agent/tools/tool_scripts/summarize_files.py
 
 Summarize structure and secret-like keys in config-ish files.
 """
 
 from pathlib import Path
+import logging
 from typing import Any, Dict, List, Optional, Union
 import json
 import yaml
 from bot0_config_agent.agent_models.step_status import StepStatus
+
+logger = logging.getLogger(__name__)
 
 SECRET_KEYWORDS = ["token", "key", "secret", "pass", "auth"]
 

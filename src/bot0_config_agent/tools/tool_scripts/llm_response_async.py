@@ -1,5 +1,5 @@
 """
-tools/llm_response_async.py
+bot0_config_agent/tools/tool_scripts/llm_response_async.py
 
 Agent-native LLM call helper (sync wrapper around an async planner method).
 """

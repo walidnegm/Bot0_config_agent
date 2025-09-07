@@ -1,4 +1,4 @@
-"""tools/seed_parser.py
+"""bot0_config_agent/tools/tool_scripts/seed_parser.py
 
 Parse simple KEY=VALUE pairs from a plaintext seed/config file (.env-style).
 """

@@ -1,5 +1,5 @@
 """
-toos/find_dir_structure.py
+bot0_config_agent/toos/tool_scripts/find_dir_structure.py
 
 Tool to recursive find sub directories and return a dict of directory/file structure.
 

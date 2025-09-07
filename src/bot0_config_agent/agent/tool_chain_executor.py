@@ -17,12 +17,12 @@ from bot0_config_agent.agent_models.fanout_models import (
     FanoutResult,
     FanoutPayload,
 )
-from bot0_config_agent.tools.workbench.tool_models import (
+from bot0_config_agent.tools.configs.tool_models import (
     ToolOutput,
     ToolResult,
     ToolResults,
 )
-from bot0_config_agent.tools.workbench.tool_registry import ToolRegistry
+from bot0_config_agent.tools.configs.tool_registry import ToolRegistry
 
 
 logger = logging.getLogger(__name__)
