@@ -1,0 +1,18 @@
+{
+  "name": "aggregate_file_content",
+  "description": "Combines multiple file contents from prior steps for summarization.",
+  "import_path": "bot0_config_agent.tools.tool_scripts.aggregate_file_content.aggregate_file_content",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "steps": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "List of step references (e.g., ['<step_0>', '<step_1>'])"
+      }
+    },
+    "required": ["steps"]
+  },
+  "input_model": "AggregateFileContentInput",
+  "output_model": "AggregateFileContentResult"
+}

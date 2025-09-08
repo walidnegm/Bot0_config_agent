@@ -5,11 +5,12 @@ Supports both local and cloud (API) LLM model selection via explicit arguments.
 """
 
 import logging
-from typing import Optional, Dict, Union
+from typing import Optional
 import asyncio
 from bot0_config_agent.agent.planner import Planner
 from bot0_config_agent.agent.tool_chain_executor import ToolChainExecutor
 from bot0_config_agent.agent_models.step_state import StepState
+from bot0_config_agent.agent_models.step_status import StepStatus
 from bot0_config_agent.tools.configs.tool_registry import ToolRegistry
 from bot0_config_agent.tools.configs.tool_models import ToolResult, ToolResults
 

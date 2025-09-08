@@ -311,7 +311,7 @@ def summary_to_prompt(
     source_result: Any, instruction: Optional[str] = None, **_
 ) -> Dict[str, Any]:
     """
-    source: summarize_files | summarize_config → target: llm_response_async
+    source: summarize_files | summarize_config_files → target: llm_response_async
     Build a prompt from summaries.
     Output: {"prompt": <str>}
     """

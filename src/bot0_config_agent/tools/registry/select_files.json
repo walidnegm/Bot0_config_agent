@@ -1,0 +1,36 @@
+{
+  "name": "select_files",
+  "description": "Filters and slices a provided list of file paths by extension and name substrings, with optional sorting and pagination. Returns the selected paths and metadata.",
+  "import_path": "bot0_config_agent.tools.tool_scripts.select_files.select_files",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "files": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Input file paths (strings or Paths)."
+      },
+      "include_ext": { "type": "array", "items": { "type": "string" } },
+      "exclude_ext": { "type": "array", "items": { "type": "string" } },
+      "include_name": { "type": "array", "items": { "type": "string" } },
+      "exclude_name": { "type": "array", "items": { "type": "string" } },
+      "sort_by": {
+        "type": "string",
+        "enum": ["name", "path", "ctime", "mtime"],
+        "description": "Sort key (ctime/mtime require filesystem stat)."
+      },
+      "order": {
+        "type": "string",
+        "enum": ["asc", "desc"],
+        "default": "asc"
+      },
+      "tail": { "type": "boolean", "default": false },
+      "limit": { "type": "integer" },
+      "offset": { "type": "integer", "default": 0 },
+      "hard_cap": { "type": "integer", "default": 100 }
+    },
+    "required": []
+  },
+  "input_model": "SelectFilesInput",
+  "output_model": "SelectFilesResult"
+}

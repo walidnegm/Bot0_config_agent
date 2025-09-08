@@ -44,7 +44,7 @@ class LlamaCppLoaderConfig(BaseModel):
 
         # If not absolute, assume it's relative to project root
         if not path.is_absolute():
-            from utils.system.find_root_dir import find_project_root
+            from bot0_config_agent.utils.system.find_root_dir import find_project_root
 
             path = find_project_root() / path
 

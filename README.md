@@ -41,12 +41,14 @@ python downloadllama.py
 ```
 
 ---
-
 ### 4. 🖥️ **Running the Agent CLI**
 
 ---
-You can run the agent either with a **local model** or an **API/cloud model**.
+You can run the agent either with a **local model** or an **API/cloud model**.  
 Exactly one of `--local-model` or `--api-model` must be specified.
+
+⚠️ **Important:** Always run these commands from the project root `src/` directory.  
+Relative paths like `./bot0_config_agent/agent` assume you are inside `proj_root/src`.
 
 ---
 
@@ -54,11 +56,11 @@ Exactly one of `--local-model` or `--api-model` must be specified.
 
 ```bash
 # Local LLM (DeepSeek, GPTQ)
-python -m agent.cli --local-model deepseek_coder_1_3b_gptq --once "list all files in the ./agent directory and read the first file."
+python -m bot0_config_agent.cli --local-model deepseek_coder_1_3b_gptq --once "list all files in the ./bot0_config_agent/agent directory and read the first file."
 
 # OpenAI API
-python -m agent.cli --api-model gpt-4.1-mini --once "list all files in the ./agent directory and read the first file."
-```
+python -m bot0_config_agent.cli --api-model gpt-4.1-mini --once "list all files in the ./bot0_config_agent/agent directory and read the first file."
+````
 
 ---
 
@@ -66,28 +68,16 @@ python -m agent.cli --api-model gpt-4.1-mini --once "list all files in the ./age
 
 ```bash
 # Summarize entire project config with Claude
-python agent/cli.py --api-model claude-3-haiku-20240307 --once "summarize project config"
+python -m bot0_config_agent.cli --api-model claude-3-haiku-20240307 --once "summarize project config"
 
 # Ask about config file locations
-python -m agent.cli --api-model gpt-4.1-mini --once "where are my config files?"
+python -m bot0_config_agent.cli --api-model gpt-4.1-mini --once "where are my config files?"
 
 # Complex: find + summarize config files (exclude venv, models, etc.)
-python -m agent.cli --api-model claude-sonnet-4-20250514 --once "First find all config files in the project (excluding venv, models, etc.), then summarize each."
+python -m bot0_config_agent.cli --api-model claude-sonnet-4-20250514 --once "First find all config files in the project (excluding venv, models, etc.), then summarize each."
 
-# Read multiple files in ./agent
-python -m agent.cli --api-model gpt-4.1-mini --once "list all files in the ./agent directory and read the first 3 files."
-```
-
----
-
-#### 🔹 Local Model Summarization Examples
-
-```bash
-# Local LFM2 model
-python -m agent.cli --local-model lfm2_1_2b --once "list all files in the ./agent directory and summarize them."
-
-# Local Phi-3.5 AWQ model
-python -m agent.cli --local-model phi_3_5_mini_awq --once "list all files in the ./agent directory and summarize them."
+# Read multiple files in ./bot0_config_agent/agent
+python -m bot0_config_agent.cli --api-model gpt-4.1-mini --once "list all files in the ./bot0_config_agent/agent directory and read the first 3 files."
 ```
 
 ---

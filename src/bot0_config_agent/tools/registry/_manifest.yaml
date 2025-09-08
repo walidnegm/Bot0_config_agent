@@ -1,0 +1,69 @@
+version: 1
+
+# What to load, grouped for convenience (order respected)
+load:
+  - group: core
+    include:
+      - list_project_files.json
+      - read_files.json
+      - select_files.json
+      - aggregate_file_content.json
+      - preset_code_summary.json
+      - llm_response_async.json
+
+  - group: filesystem
+    include:
+      - find_dir_structure.json
+      - find_dir_size.json
+      - find_files_by_keywords.json
+      - locate_files.json
+      - set_scope.json
+
+  - group: config
+    include:
+      - summarize_config_files.json
+      - summarize_files.json
+      - seed_parser.json
+
+  - group: env
+    include:
+      - check_cuda.json
+      - make_virtualenv.json
+
+  - group: misc
+    include:
+      - echo_message.json
+
+# Defaults applied to all listed tools (can be overridden below)
+defaults:
+  enabled: true
+  hidden_from_planner: false
+  tags: []
+
+# Per-tool overrides or extra metadata
+overrides:
+  aggregate_file_content.json:
+    prompt_alias: "aggregate_file_content(steps: [<step_ref>])"
+
+  llm_response_async.json:
+    hidden_from_planner: true   # planner should prefer concrete tools; keep this as fallback
+    tags: [llm, fallback]
+
+  list_project_files.json:
+    prompt_alias: "list_project_files(dir?, include_ext?, exclude_dirs?)"
+
+  set_scope.json:
+    tags: [fs, project]
+
+  select_files.json:
+    # Optional human-friendly alias for planner prompts (does NOT change schema)
+    prompt_alias: "select_files(paths: [str], include_ext?, exclude_ext?, include_name?, exclude_name?, sort_by?, order?, tail?, limit?, offset?, hard_cap=100)"
+
+  read_files.json:
+    prompt_alias: "read_files(files: [str])"
+
+# Optional planner hinting (your loader can ignore if unused)
+planner:
+  # If you implement retrieval-based schema injection, you can cap how many to inject.
+  max_tools_exposed: 12
+  prefer_groups: ["core", "fs", "config"]

@@ -50,7 +50,7 @@
     "transform_fn": "bot0_config_agent.tools.configs.tool_transformation.summary_to_prompt"
   },
   {
-    "source_tool": "summarize_config",
+    "source_tool": "summarize_config_files",
     "target_tool": "llm_response_async",
     "transform_fn": "bot0_config_agent.tools.configs.tool_transformation.summary_to_prompt"
   },

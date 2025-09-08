@@ -75,13 +75,25 @@ class ToolOutput(BaseModel):
 
 class ToolSpec(BaseModel):
     """
-    Registry metadata holder (JSON schema-like).
-      - description: human-readable tool summary
-      - import_path: module.fn to import
-      - parameters: JSON-schema dict describing inputs
-      - input_model/output_model: optional fully-qualified model names
+    JSON-schema-like descriptor for a tool entry in the registry.
+
+    Fields
+    ------
+    name : str
+        Unique tool name (used as the registry key).
+    description : str
+        Human-readable summary of what the tool does.
+    import_path : str
+        Dotted path to the callable entrypoint (e.g., "pkg.module.func").
+    parameters : Dict[str, Any]
+        JSON Schema describing the tool's input parameters.
+    input_model : Optional[str]
+        Optional fully-qualified name of a Pydantic model used for input validation.
+    output_model : Optional[str]
+        Optional fully-qualified name of a Pydantic model used for output validation.
     """
 
+    name: str
     description: str
     import_path: str
     parameters: Dict[str, Any]
@@ -754,7 +766,7 @@ class SelectFilesResult(BaseModel):
 # =============================================================================
 
 
-class SummarizeConfigInput(BaseModel):
+class SummarizeConfigFilesInput(BaseModel):
     """Input: summarize config files in root directory."""
 
     dir: Optional[Path | str] = None
@@ -764,7 +776,7 @@ class SummarizeConfigInput(BaseModel):
         return str(v) if v is not None else None
 
 
-class SummarizeConfigResult(ToolOutput):
+class SummarizeConfigFilesResult(ToolOutput):
     """Output: plain-text configuration summary under result."""
 
     result: Optional[str] = None

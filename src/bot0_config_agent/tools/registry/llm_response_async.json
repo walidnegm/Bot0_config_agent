@@ -1,0 +1,14 @@
+{
+  "name": "llm_response_async",
+  "description": "Sends a prompt to the LLM and returns the generated natural language response.",
+  "import_path": "bot0_config_agent.tools.tool_scripts.llm_response_async.llm_response_async",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "prompt": { "type": "string", "description": "Instruction or context to send to the LLM." }
+    },
+    "required": ["prompt"]
+  },
+  "input_model": "LLMResponseAsyncInput",
+  "output_model": "LLMResponseAsyncResult"
+}

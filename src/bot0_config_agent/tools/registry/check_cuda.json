@@ -1,0 +1,8 @@
+{
+    "name": "check_cuda",
+    "description": "Checks whether CUDA is available using PyTorch.",
+    "import_path": "bot0_config_agent.tools.tool_scripts.check_cuda.check_cuda",
+    "parameters": { "type": "object", "properties": {}, "required": [] },
+    "input_model": "CheckCudaInput",
+    "output_model": "CheckCudaResult"
+  }

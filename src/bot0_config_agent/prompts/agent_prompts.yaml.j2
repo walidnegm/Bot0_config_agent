@@ -72,10 +72,16 @@ planner:
     Use only literal values.
 
     === Tool List ===
-    {% for tool in tools %}
-    - {{ tool.name }}({% for param, meta in tool.parameters.items() %}{{ param }}: {{ meta.type }}{% if not loop.last %}, {% endif %}{% endfor %}): {{ tool.description }}{% if tool.usage_hint %} — {{ tool.usage_hint }}{% endif %}
+    {% for name, tool in tools.items() %}
+    - {{ tool.name or name }}(
+      {%- set props = (tool.parameters.properties if tool.parameters and tool.parameters.properties else {}) -%}
+      {%- for param, meta in props.items() -%}
+        {{ param }}: {{ meta.type }}{%- if not loop.last %}, {% endif -%}
+      {%- endfor -%}
+    ): {{ tool.description }}{% if tool.usage_hint %} — {{ tool.usage_hint }}{% endif %}
     {% endfor %}
 
+    <Example>
     Example:
     [
       {
@@ -85,6 +91,7 @@ planner:
         }
       }
     ]
+    </Example>
 
   select_multi_tool_prompt: |
     Analyze the user's instruction and select the tools needed to solve the task, using the tool list below.
@@ -95,8 +102,13 @@ planner:
     Break down the task into the smallest tool calls needed and include only the tools required.
 
     === Tool List ===
-    {% for tool in tools %}
-    - {{ tool.name }}({% for param, meta in tool.parameters.items() %}{{ param }}: {{ meta.type }}{% if not loop.last %}, {% endif %}{% endfor %}): {{ tool.description }}{% if tool.usage_hint %} — {{ tool.usage_hint }}{% endif %}
+    {% for name, tool in tools.items() %}
+    - {{ tool.name or name }}(
+      {%- set props = (tool.parameters.properties if tool.parameters and tool.parameters.properties else {}) -%}
+      {%- for param, meta in props.items() -%}
+        {{ param }}: {{ meta.type }}{%- if not loop.last %}, {% endif -%}
+      {%- endfor -%}
+    ): {{ tool.description }}{% if tool.usage_hint %} — {{ tool.usage_hint }}{% endif %}
     {% endfor %}
 
     <Example>

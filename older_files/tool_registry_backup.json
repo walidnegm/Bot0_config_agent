@@ -299,7 +299,7 @@
       "properties": {},
       "required": []
     },
-    "input_model": "SummarizeConfigInput",
+    "input_model": "SummarizeConfigFilesInput",
     "output_model": "SummarizeConfigResult"
   },
   "summarize_files": {

@@ -1,0 +1,14 @@
+{
+  "name": "find_dir_size",
+  "description": "Counts the number of files and the total size (in bytes and MB) of all files in a directory (recursively).",
+  "import_path": "bot0_config_agent.tools.tool_scripts.find_dir_size.find_dir_size",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "dir": { "type": "string", "description": "Directory to scan (default is current directory)." }
+    },
+    "required": []
+  },
+  "input_model": "FindDirSizeInput",
+  "output_model": "FindDirSizeResult"
+}

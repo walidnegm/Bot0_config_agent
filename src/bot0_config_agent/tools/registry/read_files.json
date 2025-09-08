@@ -1,0 +1,19 @@
+{
+  "name": "read_files",
+  "description": "Reads the contents of one or more files and returns them as a list of file-content mappings.",
+  "import_path": "bot0_config_agent.tools.tool_scripts.read_files.read_files",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "files": {
+        "type": "array",
+        "description": "List of file paths to read",
+        "items": { "type": "string" },
+        "minItems": 1
+      }
+    },
+    "required": ["files"]
+  },
+  "input_model": "ReadFilesInput",
+  "output_model": "ReadFilesResult"
+}

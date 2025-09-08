@@ -1,4 +1,4 @@
-"""bot0_config_agent/tools/tool_scripts/summarize_config.py
+"""bot0_config_agent/tools/tool_scripts/summarize_config_files.py
 
 Scan a directory for config-like files and summarize top-level keys and
 potential secret-looking fields.
@@ -22,19 +22,58 @@ def is_secret(k: str) -> bool:
     return any(x in k.lower() for x in SECRET_KEYWORDS)
 
 
-def summarize_config(**kwargs) -> Dict[str, Any]:
+def summarize_config_files(**kwargs) -> Dict[str, Any]:
     """
-    Params (kwargs):
-        dir (str, optional): Base directory to scan. Defaults to current working dir.
+    Scans a directory recursively for files that are likely to contain configuration
+    data. t summarizes each file by extracting its top-level keys and identifies any
+    potential secrets based on a predefined list of keywords.
+
+    This function is useful for understanding the structure of a project's
+    configuration without needing to read the full content of each file.
+
+    Parameters:
+        dir (str, optional): The base directory to scan. Defaults to the current
+                             working directory if not specified.
 
     Returns:
-        dict: Standard envelope (status, message, result)
-        result = {
+        dict: A standard envelope containing the scan's status, a message, and
+              the results. The 'result' key is a dictionary with a 'configs' key,
+              which is a list of dictionaries. Each dictionary in the list
+              represents a scanned file.
+
+    >>> Example Output (Success):
+    {
+        "status": "SUCCESS",
+        "message": "Scanned 3 config-like file(s) under '/path/to/project'.",
+        "result": {
             "configs": [
-                {"file": str, "keys": [str], "secrets": [str]} | {"file": str, "error": str},
-                ...,
+                {
+                    "file": ".env",
+                    "keys": ["API_KEY", "DATABASE_URL", "SECRET_KEY"],
+                    "secrets": ["API_KEY", "SECRET_KEY"]
+                },
+                {
+                    "file": "config/settings.json",
+                    "keys": ["host", "port", "user", "password"],
+                    "secrets": ["password"]
+                },
+                {
+                    "file": "config.yaml",
+                    "keys": ["database", "server", "logging"],
+                    "secrets": []
+                }
             ]
         }
+    }
+
+    >>> Example Output (Error):
+    {
+        "status": "ERROR",
+        "message": "Directory '/non/existent/path' does not exist or is not a directory.",
+        "result": {
+            "configs": []
+        }
+    }
     """
     base_dir = kwargs.get("dir") or os.getcwd()
     base_path = Path(os.path.expanduser(base_dir)).resolve()

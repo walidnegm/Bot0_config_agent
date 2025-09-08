@@ -1,0 +1,20 @@
+{
+  "name": "find_dir_structure",
+  "description": "Recursively returns the directory structure starting from a root path.",
+  "import_path": "bot0_config_agent.tools.tool_scripts.find_dir_structure.find_dir_structure",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "dir": { "type": "string", "description": "Root directory to scan (absolute or relative)." },
+      "ignore_dirs": {
+        "type": "array",
+        "description": "Directory names to skip anywhere in the tree.",
+        "items": { "type": "string" }
+      }
+    },
+    "required": ["dir"],
+    "additionalProperties": false
+  },
+  "input_model": "FindDirStructureInput",
+  "output_model": "FindDirStructureResult"
+}

@@ -1,0 +1,19 @@
+{
+  "name": "set_scope",
+  "description": "Sets project root and optional branch subpaths (relative to root) for subsequent tools.",
+  "import_path": "bot0_config_agent.tools.tool_scripts.set_scope.set_scope",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "dir": { "type": "string", "description": "Project root directory." },
+      "branches": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "One or more subpaths under root to operate on."
+      }
+    },
+    "required": []
+  },
+  "input_model": "SetScopeInput",
+  "output_model": "SetScopeResult"
+}

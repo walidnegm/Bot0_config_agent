@@ -10,35 +10,31 @@ and provides clear, shareable logs and user-friendly output.
 Usage examples:
 ----------------
 # Run interactively with a local model:
-python agent/cli.py --local-model llama_2_7b_chat
+python -m bot0_config_agent.cli --local-model llama_2_7b_chat
 
 # Run interactively with a cloud API model (e.g., OpenAI, Anthropic, Gemini):
-python agent/cli.py --api-model gpt-4o
+python -m bot0_config_agent.cli --api-model gpt-4o
 
 # Run one-off command with a local model:
-python agent/cli.py --local-model llama_2_7b_chat --once "where are my model files"
+python -m bot0_config_agent.cli --local-model llama_2_7b_chat --once "where are my model files"
 
 # Run one-off command with a cloud API model:
+python -m bot0_config_agent.cli --api-model gpt-4.1-mini --once "where are my config files?"
 
-* Using python -m
-Simple single step:
-python -m agent.cli --local-model deepseek_coder_1_3b_gptq --once "list all files in the ./agent directory and read the first file."
-python -m agent.cli --api-model gpt-4.1-mini --once "list all files in the ./agent directory and read the first file."
-
-More complex:
-python agent/cli.py --api-model claude-3-haiku-20240307 --once "summarize project config"
-python -m agent.cli --api-model gpt-4.1-mini --once "where are my config files?"
-python -m agent.cli --api-model claude-sonnet-4-20250514 --once "First find all config files in the project (excluding venv, models, etc.), then summarize each."
-python -m agent.cli --api-model gpt-4.1-mini --once "list all files in the ./agent directory and read the first 3 files."
-python -m agent.cli --local-model lfm2_1_2b --once "list all files in the ./agent directory and summarize the first 3 files."
-python -m agent.cli --local-model phi_3_5_mini_awq --once "list all files in the ./agent directory and summarize them."
-
+# More complex one-off commands:
+python -m bot0_config_agent.cli --api-model claude-3-haiku-20240307 --once "summarize project config"
+python -m bot0_config_agent.cli --api-model claude-sonnet-4-20250514 --once "First find all config files in the project (excluding venv, models, etc.), then summarize each."
+python -m bot0_config_agent.cli --api-model gpt-4.1-mini --once "list all files in the ./bot0_config_agent/agent directory and read the first 3 files."
+python -m bot0_config_agent.cli --local-model deepseek_coder_1_3b_gptq --once "list all files in the ./bot0_config_agent/agent directory and read the first file."
+python -m bot0_config_agent.cli --local-model lfm2_1_2b --once "list all files in the ./bot0_config_agent/agent directory and summarize the first 3 files."
+python -m bot0_config_agent.cli --local-model phi_3_5_mini_awq --once "list all files in the ./bot0_config_agent/agent directory and summarize them."
 
 # Show all available models and their descriptions:
-python agent/cli.py --show-models-help
+python -m bot0_config_agent.cli --show-models-help
 
-python -m agent.cli --api-model gpt-4.1-mini --once "List all files in the ./agent directory excluding __pycache__, .git, and venv."
-python -m agent.cli --api-model gpt-4.1-mini --once "List all files in the ./agent directory excluding __pycache__, .git, and venv, then summarize their contents."
+# More examples with exclusions:
+python -m bot0_config_agent.cli --api-model gpt-4.1-mini --once "List all files in the ./bot0_config_agent/agent directory excluding __pycache__, .git, and venv."
+python -m bot0_config_agent.cli --api-model gpt-4.1-mini --once "List all files in the ./bot0_config_agent/agent directory excluding __pycache__, .git, and venv, then summarize their contents."
 
 Notes:
 ------

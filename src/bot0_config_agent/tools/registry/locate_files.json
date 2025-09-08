@@ -1,0 +1,14 @@
+{
+  "name": "locate_files",
+  "description": "Searches common development directories (home, project root) for a file with the exact name provided.",
+  "import_path": "bot0_config_agent.tools.tool_scripts.locate_files.locate_files",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "filename": { "type": "string", "description": "Exact name of the file to locate (e.g., 'model.pth', 'config.yaml')." }
+    },
+    "required": ["filename"]
+  },
+  "input_model": "LocateFilesInput",
+  "output_model": "LocateFilesResult"
+}

@@ -1,0 +1,19 @@
+{
+  "name": "find_files_by_keywords",
+  "description": "Searches for files containing the keyword in their name under the given directory.",
+  "import_path": "bot0_config_agent.tools.tool_scripts.find_files_by_keywords.find_files_by_keywords",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "keywords": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "List of partial names to match (e.g., ['llama', 'model'])."
+      },
+      "dir": { "type": "string", "description": "Directory to search from. Defaults to current working directory." }
+    },
+    "required": ["keywords"]
+  },
+  "input_model": "FindFilesByKeywordsInput",
+  "output_model": "FindFilesByKeywordsResult"
+}

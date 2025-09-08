@@ -1,0 +1,14 @@
+{
+  "name": "seed_parser",
+  "description": "Parses plaintext files into key-value pairs.",
+  "import_path": "bot0_config_agent.tools.tool_scripts.seed_parser.seed_parser",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "file": { "type": "string", "description": "Path to config or password file." }
+    },
+    "required": ["file"]
+  },
+  "input_model": "SeedParserInput",
+  "output_model": "SeedParserResult"
+}

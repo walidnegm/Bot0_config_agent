@@ -1,0 +1,47 @@
+{
+  "name": "preset_code_summary",
+  "description": "Builds an LLM-ready prompt to summarize/review/document code files.",
+  "import_path": "bot0_config_agent.tools.tool_scripts.preset_code_summary.preset_code_summary",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "files": {
+        "type": "array",
+        "description": "List of file-content pairs (usually from read_files).",
+        "items": {
+          "type": "object",
+          "properties": {
+            "file": { "type": "string" },
+            "content": { "type": "string" }
+          },
+          "required": ["file", "content"]
+        },
+        "minItems": 1
+      },
+      "task": {
+        "type": "string",
+        "enum": ["summarize", "review", "document"],
+        "default": "summarize",
+        "description": "Intent of the preset: summarize, review (with suggestions), or document (README-style)."
+      },
+      "max_chars": {
+        "type": "integer",
+        "minimum": 1000,
+        "default": 8000,
+        "description": "Soft cap for the generated prompt length."
+      },
+      "style": {
+        "type": "string",
+        "description": "Optional tone/format (e.g., 'bullet points', 'architectural overview')."
+      },
+      "include_metadata": {
+        "type": "boolean",
+        "default": true,
+        "description": "Whether to add quick per-file signals/meta to the prompt."
+      }
+    },
+    "required": ["files"]
+  },
+  "input_model": "CodePresetInput",
+  "output_model": "CodePresetResult"
+}

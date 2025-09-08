@@ -1,0 +1,24 @@
+{
+  "name": "list_project_files",
+  "description": "Recursively scans a project directory for files, supporting directory exclusion and file type inclusion filters. Returns files as a list of string paths.",
+  "import_path": "bot0_config_agent.tools.tool_scripts.list_project_files.list_project_files",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "dir": { "type": "string", "description": "The root directory to scan. Defaults to the project root if not provided." },
+      "exclude": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "List of directory names or substrings to exclude (e.g., ['venv', '.venv', '__pycache__', 'models'])."
+      },
+      "include": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "List of file extensions to include (e.g., ['.py', '.md', '.toml', '.yaml', '.json'])."
+      }
+    },
+    "required": []
+  },
+  "input_model": "ListProjectFilesInput",
+  "output_model": "ListProjectFilesResult"
+}

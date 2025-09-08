@@ -57,3 +57,8 @@ include = ["bot0_config_agent*"]
 # Include your templates/configs in the wheel
 [tool.setuptools.package-data]
 "bot0_config_agent.data" = ["*.yaml", "*.yaml.j2", "*.json"]
+
+"bot0_config_agent.tools.registry" = [
+  "_manifest.yaml",
+  "*.json"            # use this if your registry files are plain .json (not *.tool.json)
+]

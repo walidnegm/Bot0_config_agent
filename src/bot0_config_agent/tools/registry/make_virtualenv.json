@@ -1,0 +1,14 @@
+{
+  "name": "make_virtualenv",
+  "description": "Creates a Python virtual environment at a path.",
+  "import_path": "bot0_config_agent.tools.tool_scripts.make_virtualenv.make_virtualenv",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "dir": { "type": "string", "description": "Where to create the environment." }
+    },
+    "required": ["dir"]
+  },
+  "input_model": "MakeVirtualEnvInput",
+  "output_model": "MakeVirtualEnvResult"
+}
