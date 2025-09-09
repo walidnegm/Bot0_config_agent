@@ -1,36 +1,21 @@
-"""tools/read_files.py"""
-
+# tools/read_files.py
 from pathlib import Path
+from typing import List, Dict, Any
 from agent_models.step_status import StepStatus
 
-
-def read_files(**kwargs):
-    """Tool to read one or more files from string or Path inputs."""
-    paths = kwargs.get("path")
+def read_files(path: List[str]) -> Dict[str, Any]:
     contents = []
 
-    if not paths:
-        return {
-            "status": StepStatus.ERROR,
-            "message": "Missing required parameter: path",
-        }
+    if not path:
+        return {"status": StepStatus.ERROR, "message": "Missing required parameter: path"}
 
-    # Normalize to list
-    if isinstance(paths, (str, Path)):
-        paths = [paths]
-    elif not isinstance(paths, list):
-        return {"status": StepStatus.ERROR, "message": "Invalid path type"}
-
-    for path in paths:
+    for p in path:
         try:
-            path = Path(path)  # Ensure Path object
-            with path.open("r", encoding="utf-8") as f:
-                contents.append({"path": str(path), "content": f.read()})
+            full_path = Path(p)
+            with full_path.open("r", encoding="utf-8") as f:
+                contents.append({"path": str(full_path), "content": f.read()})
         except Exception as e:
-            return {
-                "status": StepStatus.ERROR,
-                "message": f"Failed to read file '{path}': {e}",
-            }
+            return {"status": StepStatus.ERROR, "message": f"Failed to read file '{p}': {e}"}
 
     return {
         "status": StepStatus.SUCCESS,

@@ -258,12 +258,32 @@ class LLMManager:
         if self.local_model:
             if isinstance(self._client, tuple):  # transformers, gptq, awq
                 tokenizer, model = self._client
-                inputs = tokenizer.apply_chat_template(
-                    messages,
-                    tokenize=True,
-                    add_generation_prompt=True,
-                    return_tensors="pt",
-                )
+                # Fallback chat template for Llama-2 models
+                chat_template = None
+                if self.model_name == "llama_2_7b_chat_gptq":
+                    chat_template = (
+                        "{% for message in messages %}"
+                        "{% if message['role'] == 'user' %}"
+                        "[INST] {{ message['content'] }} [/INST]"
+                        "{% elif message['role'] == 'system' %}"
+                        "{{ message['content'] }} "
+                        "{% elif message['role'] == 'assistant' %}"
+                        "{{ message['content'] }} "
+                        "{% endif %}"
+                        "{% endfor %}"
+                        "{{ '<|im_end|> <|im_start|> assistant' if add_generation_prompt else '' }}"
+                    )
+                try:
+                    inputs = tokenizer.apply_chat_template(
+                        messages,
+                        tokenize=True,
+                        add_generation_prompt=True,
+                        return_tensors="pt",
+                        chat_template=chat_template,
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to apply chat template: {e}")
+                    raise
                 device = getattr(model, "device", "cuda")
                 inputs = inputs.to(device)
                 outputs = model.generate(

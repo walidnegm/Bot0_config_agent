@@ -55,14 +55,14 @@ def load_model_config(
             logger.error(f"Missing required fields for '{model_name}' in {config_path}: {missing_fields}")
             raise ValueError(f"Missing required fields for '{model_name}': {missing_fields}")
         logger.debug(f"Raw config for '{model_name}': {entry}")
+        logger.info(f"Processing loader for '{model_name}': {entry['loader']}")
         try:
-            config_entry = LoaderConfigEntry(**entry)
-            logger.debug(f"Parsed LoaderConfigEntry for '{model_name}': {config_entry}")
+            config_entry = LoaderConfigEntry.parse_with_loader(model_name, entry)
+            logger.debug(f"Parsed LoaderConfigEntry for '{model_name}': loader={config_entry.loader}, config_type={type(config_entry.config).__name__}")
+            return config_entry
         except ValidationError as e:
             logger.error(f"Failed to validate LoaderConfigEntry for '{model_name}': {e}")
             raise ValueError(f"Failed to validate LoaderConfigEntry for '{model_name}': {e}")
-        logger.info(f"✅ Model config for '{model_name}' loaded from {config_path}")
-        return config_entry
     except FileNotFoundError:
         logger.error(f"Configuration file not found: {config_path}")
         raise FileNotFoundError(f"Configuration file not found: {config_path}")

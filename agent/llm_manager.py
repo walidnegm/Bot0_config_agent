@@ -15,6 +15,7 @@ from configs.paths import MODEL_CONFIGS_YAML_FILE
 from configs.api_models import get_llm_provider, validate_api_model_name
 from agent.llm_openai import OpenAIAdapter
 import torch
+from loaders.model_configs_models import TransformersLoaderConfig
 
 logger = logging.getLogger(__name__)
 
@@ -57,18 +58,23 @@ class LLMManager:
 
             try:
                 proj_cfg = load_model_config(local_model, config_file=MODEL_CONFIGS_YAML_FILE)
-                logger.debug(f"Loaded config for '{local_model}': {proj_cfg}")
+                logger.info(f"Loaded config for '{local_model}': loader={proj_cfg.loader}, config_type={type(proj_cfg.config).__name__}, config={proj_cfg.config}")
             except (ValueError, FileNotFoundError) as e:
                 logger.error(f"Failed to load model configuration for '{local_model}' from {MODEL_CONFIGS_YAML_FILE}: {e}")
                 raise
+
+            # Only access trust_remote_code for configs that support it
+            trust_remote_code = True
+            if isinstance(proj_cfg.config, TransformersLoaderConfig):
+                trust_remote_code = proj_cfg.config.trust_remote_code or True
 
             init_config = LLMInitConfig(
                 name=local_model,
                 loader=proj_cfg.loader,
                 hf_model=proj_cfg.config.model_id_or_path,
-                device=proj_cfg.config.device,
-                dtype=proj_cfg.config.torch_dtype,
-                trust_remote_code=proj_cfg.config.trust_remote_code or True,
+                device=getattr(proj_cfg.config, "device", None),
+                dtype=getattr(proj_cfg.config, "torch_dtype", None),
+                trust_remote_code=getattr(proj_cfg.config, "trust_remote_code", True),
                 api_model=None,
             )
             logger.info(f"[LLMManager] ✅ Using config: {init_config}")
@@ -86,99 +92,55 @@ class LLMManager:
 
                 try:
                     device = init_config.device or ("cuda" if torch.cuda.is_available() else "cpu")
-                    self._client = (
-                        AutoTokenizer.from_pretrained(
-                            init_config.hf_model,
-                            use_fast=True,
-                            trust_remote_code=init_config.trust_remote_code,
-                            use_safetensors=proj_cfg.config.use_safetensors,
-                            token=hf_token,
-                            local_files_only=True,
-                        ),
-                        AutoModelForCausalLM.from_pretrained(
-                            init_config.hf_model,
-                            device_map="auto",
-                            trust_remote_code=init_config.trust_remote_code,
-                            torch_dtype=init_config.dtype or "auto",
-                            use_safetensors=proj_cfg.config.use_safetensors,
-                            low_cpu_mem_usage=proj_cfg.config.low_cpu_mem_usage or False,
-                            offload_folder=proj_cfg.config.offload_folder,
-                            token=hf_token,
-                            local_files_only=True,
-                        ),
+                    tokenizer = AutoTokenizer.from_pretrained(
+                        init_config.hf_model,
+                        token=hf_token,
+                        use_safetensors=proj_cfg.config.use_safetensors,
+                        trust_remote_code=init_config.trust_remote_code,
                     )
-                    logger.info(f"[LLMManager] 📦 Local model loaded: {init_config.name} on {device}")
-                except Exception as e:
-                    logger.error(f"[LLMManager] Failed to load local model {init_config.name}: {e}")
-                    if "401 Client Error" in str(e):
-                        logger.error(
-                            f"Authentication failed for {init_config.hf_model}. "
-                            f"Ensure the model is downloaded locally to $HF_HOME/hub/models--{init_config.hf_model.replace('/', '--')}/snapshots or you have access via HF_TOKEN."
-                        )
-                    raise
-
-            elif init_config.loader == "llama_cpp":
-                try:
-                    from llama_cpp import Llama
-                except ImportError as e:
-                    raise ImportError("llama_cpp_python not installed; `pip install llama_cpp_python`") from e
-
-                try:
-                    cache_dir = os.path.join(os.getenv("HF_HOME", os.path.expanduser("~/.cache/huggingface")), "hub")
-                    model_cache_path = os.path.join(cache_dir, f"models--{init_config.hf_model.replace('/', '--')}")
-                    snapshots_dir = os.path.join(model_cache_path, "snapshots")
-                    if not os.path.exists(snapshots_dir):
-                        logger.error(f"No snapshots found for model {init_config.hf_model} at {snapshots_dir}")
-                        raise ValueError(f"No snapshots found for model {init_config.hf_model}")
-                    snapshots = [d for d in os.listdir(snapshots_dir) if os.path.isdir(os.path.join(snapshots_dir, d))]
-                    if not snapshots:
-                        logger.error(f"No snapshot directories found for model {init_config.hf_model} at {snapshots_dir}")
-                        raise ValueError(f"No snapshot directories found for model {init_config.hf_model}")
-                    latest_snapshot = max(snapshots, key=lambda d: os.path.getmtime(os.path.join(snapshots_dir, d)))
-                    model_path = os.path.join(snapshots_dir, latest_snapshot, "tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf")
-                    if not os.path.isfile(model_path):
-                        logger.error(f"Local model file does not exist: {model_path}")
-                        raise ValueError(f"Local model file does not exist: {model_path}")
-                    self._client = Llama(
-                        model_path=str(model_path),
-                        n_ctx=proj_cfg.config.n_ctx or 2048,
-                        n_gpu_layers=proj_cfg.config.n_gpu_layers or 0,
-                        verbose=proj_cfg.config.verbose or False,
+                    model = AutoModelForCausalLM.from_pretrained(
+                        init_config.hf_model,
+                        token=hf_token,
+                        torch_dtype=proj_cfg.config.resolved_dtype(),
+                        device_map=init_config.device or "auto",
+                        use_safetensors=proj_cfg.config.use_safetensors,
+                        trust_remote_code=init_config.trust_remote_code,
+                        low_cpu_mem_usage=proj_cfg.config.low_cpu_mem_usage,
+                        offload_folder=proj_cfg.config.offload_folder,
                     )
-                    logger.info(f"[LLMManager] 📦 Local Llama model loaded: {init_config.name}")
+                    self._client = (tokenizer, model)
+                    logger.info(f"[LLMManager] ✅ Transformers model loaded: {local_model}")
                 except Exception as e:
-                    logger.error(f"[LLMManager] Failed to load Llama model {init_config.name}: {e}")
+                    logger.error(f"[LLMManager] Failed to load transformers model {local_model}: {e}")
                     raise
 
             elif init_config.loader == "gptq":
                 try:
-                    from gptqmodel import GPTQModel
+                    from auto_gptq import AutoGPTQForCausalLM
                     from transformers import AutoTokenizer
                 except ImportError as e:
-                    raise ImportError("gptqmodel or transformers not installed; `pip install gptqmodel transformers`") from e
+                    raise ImportError("auto_gptq or transformers not installed; `pip install auto_gptq transformers`") from e
 
                 try:
-                    self._client = (
-                        AutoTokenizer.from_pretrained(
-                            init_config.hf_model,
-                            use_fast=True,
-                            token=hf_token,
-                            local_files_only=True,
-                        ),
-                        GPTQModel.from_quantized(
-                            init_config.hf_model,
-                            device="cuda" if torch.cuda.is_available() else "cpu",
-                            token=hf_token,
-                        ),
+                    tokenizer = AutoTokenizer.from_pretrained(
+                        proj_cfg.config.tokenizer_model_id or init_config.hf_model,
+                        token=hf_token,
+                        use_safetensors=proj_cfg.config.use_safetensors,
+                        trust_remote_code=init_config.trust_remote_code,
                     )
-                    logger.info(f"[LLMManager] 📦 Local GPTQ model loaded: {init_config.name}")
+                    model = AutoGPTQForCausalLM.from_quantized(
+                        init_config.hf_model,
+                        model_basename=proj_cfg.config.model_basename,
+                        device=init_config.device or "cuda",
+                        use_safetensors=proj_cfg.config.use_safetensors,
+                        trust_remote_code=init_config.trust_remote_code,
+                        disable_exllama=proj_cfg.config.disable_exllama,
+                        group_size=proj_cfg.config.group_size,
+                    )
+                    self._client = (tokenizer, model)
+                    logger.info(f"[LLMManager] ✅ GPTQ model loaded: {local_model}")
                 except Exception as e:
-                    logger.error(f"[LLMManager] Failed to load GPTQ model {init_config.name}: {e}")
-                    if "401 Client Error" in str(e):
-                        logger.error(
-                            f"Authentication failed for {init_config.hf_model}. "
-                            f"Ensure the model is downloaded locally to $HF_HOME/hub/models--{init_config.hf_model.replace('/', '--')}/snapshots or you have access via HF_TOKEN."
-                        )
+                    logger.error(f"[LLMManager] Failed to load GPTQ model {local_model}: {e}")
                     raise
 
             elif init_config.loader == "awq":
@@ -186,47 +148,60 @@ class LLMManager:
                     from awq import AutoAWQForCausalLM
                     from transformers import AutoTokenizer
                 except ImportError as e:
-                    raise ImportError("autoawq or transformers not installed; `pip install autoawq transformers`") from e
+                    raise ImportError("awq or transformers not installed; `pip install autoawq transformers`") from e
 
                 try:
-                    self._client = (
-                        AutoTokenizer.from_pretrained(
-                            init_config.hf_model,
-                            use_fast=True,
-                            token=hf_token,
-                            local_files_only=True,
-                        ),
-                        AutoAWQForCausalLM.from_quantized(
-                            init_config.hf_model,
-                            device="cuda" if torch.cuda.is_available() else "cpu",
-                            fuse_layers=False,
-                            token=hf_token,
-                        ),
+                    tokenizer = AutoTokenizer.from_pretrained(
+                        init_config.hf_model,
+                        token=hf_token,
+                        use_safetensors=proj_cfg.config.use_safetensors,
+                        trust_remote_code=init_config.trust_remote_code,
                     )
-                    logger.info(f"[LLMManager] 📦 Local AWQ model loaded: {init_config.name}")
+                    model = AutoAWQForCausalLM.from_quantized(
+                        init_config.hf_model,
+                        device=init_config.device or "cuda",
+                        use_safetensors=proj_cfg.config.use_safetensors,
+                        trust_remote_code=init_config.trust_remote_code,
+                        fuse_qkv=proj_cfg.config.fuse_qkv,
+                    )
+                    self._client = (tokenizer, model)
+                    logger.info(f"[LLMManager] ✅ AWQ model loaded: {local_model}")
                 except Exception as e:
-                    logger.error(f"[LLMManager] Failed to load AWQ model {init_config.name}: {e}")
-                    if "401 Client Error" in str(e):
-                        logger.error(
-                            f"Authentication failed for {init_config.hf_model}. "
-                            f"Ensure the model is downloaded locally to $HF_HOME/hub/models--{init_config.hf_model.replace('/', '--')}/snapshots or you have access via HF_TOKEN."
-                        )
+                    logger.error(f"[LLMManager] Failed to load AWQ model {local_model}: {e}")
                     raise
 
+            elif init_config.loader == "llama_cpp":
+                try:
+                    from llama_cpp import Llama
+                except ImportError as e:
+                    raise ImportError("llama_cpp_python not installed; `pip install llama_cpp_python`") from e
+                try:
+                    from loaders.model_configs_models import LlamaCppLoaderConfig
+                    logger.debug(f"Checking config type for {local_model}: {type(proj_cfg.config).__name__}")
+                    if not isinstance(proj_cfg.config, LlamaCppLoaderConfig):
+                        logger.error(f"Expected LlamaCppLoaderConfig for {local_model}, got {type(proj_cfg.config).__name__}")
+                        raise ValueError(f"Invalid config type for llama_cpp loader: {type(proj_cfg.config).__name__}")
+                    n_ctx = proj_cfg.config.n_ctx or 2048
+                    n_gpu_layers = proj_cfg.config.n_gpu_layers
+                    model_path = proj_cfg.config.model_id_or_path
+                    logger.info(f"[LLMManager] Loading Llama model from {model_path} with n_ctx={n_ctx}, n_gpu_layers={n_gpu_layers}")
+                    self._client = Llama(
+                        model_path=model_path,
+                        n_ctx=n_ctx,
+                        n_gpu_layers=n_gpu_layers,
+                        verbose=proj_cfg.config.verbose,
+                    )
+                    logger.info(f"[LLMManager] ✅ Llama model loaded: {local_model}")
+                except Exception as e:
+                    logger.error(f"[LLMManager] Failed to load Llama model {local_model}: {e}")
+                    raise
             else:
                 raise ValueError(f"Unsupported loader: {init_config.loader}")
 
-        else:  # api_model
+        else:
             validate_api_model_name(api_model)
-            provider = get_llm_provider(api_model)
-            logger.info(f"[LLMManager] Using API provider: {provider} for model: {api_model}")
-            init_config = LLMInitConfig(
-                name=api_model,
-                loader="openai",
-                api_model=api_model,
-            )
-            logger.info(f"[LLMManager] 📦 API client ready for model: {api_model}")
             self._client = OpenAIAdapter(model=api_model)
+            logger.info(f"[LLMManager] 📦 API client ready for model: {api_model}")
 
     async def generate_async(
         self,

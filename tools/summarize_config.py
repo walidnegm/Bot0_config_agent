@@ -1,33 +1,25 @@
+# tools/summarize_config.py
 from pathlib import Path
 import os
 import logging
 import json
 import yaml
+from typing import List, Dict, Any
 from agent_models.step_status import StepStatus
 
 logger = logging.getLogger(__name__)
 
 SECRET_KEYWORDS = ["token", "key", "secret", "pass", "auth"]
 
-
-def is_secret(k):
+def is_secret(k: str) -> bool:
     return any(x in k.lower() for x in SECRET_KEYWORDS)
 
+def summarize_config() -> Dict[str, Any]:
+    summary: List[Dict[str, Any]] = []
 
-def summarize_config(**kwargs):
-    summary = []
+    known_filenames = {".env", "config.json", "config.yaml", "config.yml", "settings.py", "pyproject.toml", "requirements.txt"}
 
-    known_filenames = {
-        ".env",
-        "config.json",
-        "config.yaml",
-        "config.yml",
-        "settings.py",
-        "pyproject.toml",
-        "requirements.txt",
-    }
-
-    def extract_kv_lines(path):
+    def extract_kv_lines(path: Path) -> Dict[str, str]:
         try:
             with open(path, "r", encoding="utf-8") as f:
                 lines = f.readlines()
@@ -53,57 +45,35 @@ def summarize_config(**kwargs):
                 try:
                     if fname.endswith(".json"):
                         data = json.loads(full_path.read_text())
-                        summary.append(
-                            {
-                                "file": rel_path,
-                                "keys": list(data.keys()),
-                                "secrets": [k for k in data if is_secret(k)],
-                            }
-                        )
-
+                        summary.append({
+                            "file": rel_path,
+                            "keys": list(data.keys()),
+                            "secrets": [k for k in data if is_secret(k)],
+                        })
                     elif fname.endswith((".yaml", ".yml")):
                         data = yaml.safe_load(full_path.read_text())
                         if isinstance(data, dict):
-                            summary.append(
-                                {
-                                    "file": rel_path,
-                                    "keys": list(data.keys()),
-                                    "secrets": [k for k in data if is_secret(k)],
-                                }
-                            )
+                            summary.append({
+                                "file": rel_path,
+                                "keys": list(data.keys()),
+                                "secrets": [k for k in data if is_secret(k)],
+                            })
                         else:
-                            summary.append(
-                                {"file": rel_path, "keys": ["[non-dict YAML]"]}
-                            )
-
+                            summary.append({"file": rel_path, "keys": ["[non-dict YAML]"]})
                     elif fname.endswith(".py"):
                         lines = extract_kv_lines(full_path)
-                        summary.append(
-                            {
-                                "file": rel_path,
-                                "keys": list(lines.keys()),
-                                "secrets": [k for k in lines if is_secret(k)],
-                            }
-                        )
-
+                        summary.append({
+                            "file": rel_path,
+                            "keys": list(lines.keys()),
+                            "secrets": [k for k in lines if is_secret(k)],
+                        })
                     else:
                         kv = extract_kv_lines(full_path)
-                        summary.append(
-                            {
-                                "file": rel_path,
-                                "keys": (
-                                    list(kv.keys())
-                                    if isinstance(kv, dict)
-                                    else ["<parse error>"]
-                                ),
-                                "secrets": (
-                                    [k for k in kv if is_secret(k)]
-                                    if isinstance(kv, dict)
-                                    else []
-                                ),
-                            }
-                        )
-
+                        summary.append({
+                            "file": rel_path,
+                            "keys": list(kv.keys()) if isinstance(kv, dict) else ["<parse error>"],
+                            "secrets": [k for k in kv if is_secret(k)] if isinstance(kv, dict) else [],
+                        })
                 except Exception as e:
                     summary.append({"file": rel_path, "error": str(e)})
             else:

@@ -1,0 +1,9 @@
+Requirement already satisfied: huggingface_hub in /home/walid/projects/Bot0_config_agent/venv/lib/python3.12/site-packages (0.34.4)
+Requirement already satisfied: pyyaml in /home/walid/projects/Bot0_config_agent/venv/lib/python3.12/site-packages (6.0.2)
+Requirement already satisfied: pydantic in /home/walid/projects/Bot0_config_agent/venv/lib/python3.12/site-packages (2.11.7)
+Collecting auto_gptq
+  Using cached auto_gptq-0.7.1.tar.gz (126 kB)
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Getting requirements to build wheel: started
+  Getting requirements to build wheel: finished with status 'error'
