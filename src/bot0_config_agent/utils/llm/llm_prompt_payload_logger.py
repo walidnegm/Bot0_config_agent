@@ -1,13 +1,26 @@
-# utils/prompt_logger.py
-from __future__ import annotations
+"""
+bot0_config_agent/utils/llm/llm_prompt_payload_logger.py
 
+How to set up .env override:
+
+# ---------------- Logging / Debugging ----------------
+LOG_PROMPT_MODE=yaml      # yaml | human | json | raw
+LOG_PROMPT_LEVEL=INFO     # DEBUG | INFO | WARNING
+"""
+
+from __future__ import annotations
+import copy
+import os
 import json
 import logging
-import os
 import textwrap
 from typing import Any, Dict, Optional, Tuple
 
+logger = logging.getLogger(__name__)
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Optional PyYAML
+# ──────────────────────────────────────────────────────────────────────────────
 try:
     import yaml  # type: ignore
 
@@ -17,23 +30,29 @@ except Exception:  # PyYAML not installed
     _HAS_YAML = False
 
 
-# ---------- YAML helpers (literal block scalars for multiline strings) ----------
+# ──────────────────────────────────────────────────────────────────────────────
+# YAML helpers (literal block scalars for multiline strings)
+# ──────────────────────────────────────────────────────────────────────────────
 class _LiteralString(str):
     """Marker type to force YAML literal block scalars (|)."""
 
     pass
 
 
-def _literal_representer(dumper, data):
+def _literal_str_representer(dumper, data: _LiteralString):  # pragma: no cover
+    # style="|" => literal block scalars (preserves real newlines)
     return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="|")
 
 
 if _HAS_YAML:
 
     class _LiteralSafeDumper(yaml.SafeDumper):  # type: ignore[name-defined]
+        """Safe dumper that knows how to render _LiteralString as a block scalar."""
+
         pass
 
-    _LiteralSafeDumper.add_representer(_LiteralString, _literal_representer)  # type: ignore[name-defined]
+    # Register representer for our marker type
+    _LiteralSafeDumper.add_representer(_LiteralString, _literal_str_representer)  # type: ignore[name-defined]
 
 
 def _literalize_multilines(obj: Any) -> Any:
@@ -41,7 +60,9 @@ def _literalize_multilines(obj: Any) -> Any:
         return {k: _literalize_multilines(v) for k, v in obj.items()}
     if isinstance(obj, list):
         return [_literalize_multilines(v) for v in obj]
-    if isinstance(obj, str) and ("\n" in obj or "\r" in obj):
+    if (
+        isinstance(obj, str) and obj.strip()
+    ):  # Force _LiteralString for non-empty strings
         return _LiteralString(obj)
     return obj
 
@@ -51,6 +72,10 @@ def _fmt_json(obj: Any) -> str:
 
 
 def _fmt_yaml(obj: Any) -> str:
+    """
+    YAML dump that prefers literal blocks for multiline strings;
+    falls back to JSON.
+    """
     if not _HAS_YAML:
         return _fmt_json(obj)
     payload = _literalize_multilines(obj)
@@ -60,10 +85,13 @@ def _fmt_yaml(obj: Any) -> str:
         default_flow_style=False,
         sort_keys=False,
         allow_unicode=True,
-    )
+        width=10_000,  # avoid folding
+    ).rstrip()
 
 
-# ------------------------------ Pretty "human" mode ----------------------------
+# ──────────────────────────────────────────────────────────────────────────────
+# Pretty "human" mode
+# ──────────────────────────────────────────────────────────────────────────────
 def _box(title: str, body: str, width: int = 100) -> str:
     width = max(20, width)
     t = f" {title} "
@@ -100,8 +128,24 @@ def _fmt_human(
     return f"{sys_block}\n{usr_block}"
 
 
-# ------------------------------- Redaction config ------------------------------
-# (simple substring redaction for prompt text; expand as needed)
+def _fmt_human_payload(
+    payload: Dict[str, Any], *, width: int = 100, max_lines: int = 120
+) -> str:
+    """Human-mode for generic payloads: render top-level keys as boxed sections."""
+    sections: list[str] = []
+    for k, v in payload.items():
+        if isinstance(v, (dict, list)):
+            text = _fmt_yaml(v) if _HAS_YAML else _fmt_json(v)
+        else:
+            text = str(v or "")
+        text, total = _collapse(text, max_lines=max_lines)
+        sections.append(_box(f"{k}  (lines: {total})", text, width=width))
+    return "\n".join(sections)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Redaction
+# ──────────────────────────────────────────────────────────────────────────────
 _REDACT_NEEDLES = ("api_key", "authorization", "bearer", "token", "secret", "password")
 
 
@@ -114,7 +158,33 @@ def _redact_text(s: str) -> str:
     return redacted
 
 
-# ---------------------------------- Public API --------------------------------
+def _redact_walk(o: Any) -> Any:
+    if isinstance(o, dict):
+        return {
+            k: (_redact_text(v) if isinstance(v, str) else _redact_walk(v))
+            for k, v in o.items()
+        }
+    if isinstance(o, list):
+        return [_redact_walk(v) for v in o]
+    if isinstance(o, str):
+        return _redact_text(o)
+    return o
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Public API
+# ──────────────────────────────────────────────────────────────────────────────
+def _resolve_level(
+    explicit: Optional[int], fallback_env: str, default_level: int
+) -> int:
+    if explicit is not None:
+        return int(explicit)
+    env = os.getenv(fallback_env, "").upper()
+    if env and hasattr(logging, env):
+        return getattr(logging, env)
+    return default_level
+
+
 def log_prompt_dict(
     logger: logging.Logger,
     *,
@@ -126,7 +196,7 @@ def log_prompt_dict(
     level: Optional[int] = None,  # default INFO (overridable via env)
     width: int = 100,
     max_lines: int = 120,
-    redact: bool = True,
+    redact: bool = False,
 ) -> None:
     """
     Pretty-print planner/classifier prompts to logs.
@@ -137,7 +207,7 @@ def log_prompt_dict(
       - mode="json":  indented JSON.
       - mode="raw":   plain text blocks (exact newlines, no boxes).
 
-    Notes:
+    * Notes:
       - Formatting is lazy (only done if the logger level is enabled).
       - Use env overrides to avoid code changes:
           LOG_PROMPT_MODE = human|yaml|json|raw
@@ -162,8 +232,8 @@ def log_prompt_dict(
     if not logger.isEnabledFor(level):
         return
 
-    sys = system_prompt or ""
-    usr = user_prompt or ""
+    sys = _LiteralString(system_prompt) or ""
+    usr = _LiteralString(user_prompt) or ""
 
     if redact:
         sys = _redact_text(sys)
@@ -196,37 +266,80 @@ def log_llm_payload(
     *,
     label: str,
     payload: Dict[str, Any],
-    mode: str = "yaml",
-    level: int = logging.DEBUG,
+    mode: Optional[str] = None,  # "human" | "yaml" | "json" | "raw"
+    level: Optional[int] = None,  # default DEBUG (overridable via env)
+    width: int = 100,
+    max_lines: int = 120,
     redact: bool = False,
 ) -> None:
     """
-    Pretty-print the exact payload being sent to an LLM API (OpenAI/Anthropic/etc).
+    Pretty-print an LLM payload (messages, outputs, params) to logs.
+
+    Behavior
+    --------
+    - **Lazy**: Returns immediately if `logger` isn't enabled for `level`.
+    - **Non-mutating**: Never modifies the input `payload`.
+    - **YAML like `log_prompt_dict`**: When `mode="yaml"`, multiline strings are
+      rendered using YAML *literal block scalars* (`|`) via `_literalize_multilines`,
+      so real line breaks are preserved (no `\\n` noise). If PyYAML isn't installed,
+      `_fmt_yaml` falls back to JSON.
+    - **Optional redaction**: If `redact=True`, performs a minimal pass that replaces
+      likely secrets (e.g., api keys, tokens) with `"[REDACTED]"`. Extend as needed.
+
+    Parameters
+    ----------
+    logger : logging.Logger
+        Destination logger.
+    label : str
+        Short label to prefix the entry (e.g., "LLMManager", "GPTQ").
+    payload : Dict[str, Any]
+        The payload to log (e.g., {"messages": [...]}, {"output": "..."}).
+    mode : str, default "yaml"
+        "yaml" for human-friendly YAML (preferred) or "json" for indented JSON.
+    level : int, default logging.DEBUG
+        Log level for the message.
+    redact : bool, default False
+        If True, minimally redact likely secrets in string fields.
+
+    Notes
+    -----
+    - Use this for inputs/outputs to the model when you want consistent, readable logs.
+    - For prompts, `log_prompt_dict` remains the convenience helper.
+    - overrides:
+        LOG_LLM_MODE  = human|yaml|json|raw
+        LOG_LLM_LEVEL = DEBUG|INFO|...
     """
-    if not logger.isEnabledFor(level):
+    mode = (mode or os.getenv("LOG_LLM_MODE") or "yaml").lower()
+    lvl = _resolve_level(level, "LOG_LLM_LEVEL", logging.DEBUG)
+
+    if not logger.isEnabledFor(lvl):
         return
 
-    data = payload
+    data: Dict[str, Any] = copy.deepcopy(payload)
     if redact:
-        # Minimal redaction pass over a dict; expand if you keep secrets embedded.
-        def _walk(o: Any) -> Any:
-            if isinstance(o, dict):
-                return {
-                    k: (
-                        "[REDACTED]"
-                        if isinstance(v, str)
-                        and any(n in v.lower() for n in _REDACT_NEEDLES)
-                        else _walk(v)
-                    )
-                    for k, v in o.items()
-                }
-            if isinstance(o, list):
-                return [_walk(v) for v in o]
-            if isinstance(o, str):
-                return _redact_text(o)
-            return o
+        data = _redact_walk(data)
 
-        data = _walk(payload)
+    if mode == "human":
+        text = _fmt_human_payload(data, width=width, max_lines=max_lines)
+        logger.log(lvl, "[%s] LLM Payload (human):\n%s", label, text)
+        return
 
-    text = _fmt_json(data) if mode == "json" else _fmt_yaml(data)
-    logger.log(level, "[%s] LLM Payload:\n%s", label, text)
+    if mode == "raw":
+        # Raw: best-effort plain text dump
+        parts: list[str] = []
+        for k, v in data.items():
+            if isinstance(v, (dict, list)):
+                v_str = _fmt_yaml(v) if _HAS_YAML else _fmt_json(v)
+            else:
+                v_str = str(v)
+            parts.append(f"{k}:\n{v_str}")
+        text = "\n\n".join(parts)
+        logger.log(lvl, "[%s] LLM Payload (raw):\n%s", label, text)
+        return
+
+    if mode == "json":
+        text = _fmt_json(data)
+        logger.log(lvl, "[%s] LLM Payload (json):\n%s", label, text)
+    else:  # yaml default
+        text = _fmt_yaml(data)
+        logger.log(lvl, "[%s] LLM Payload:\n%s", label, text)

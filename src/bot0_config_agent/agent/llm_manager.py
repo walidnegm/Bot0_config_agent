@@ -46,6 +46,7 @@ Example Usage:
         print(response)
 """
 
+from pathlib import Path
 import logging
 from typing import Any, Optional, Literal, Sequence, Union, Type, Tuple
 import re
@@ -58,13 +59,13 @@ from llama_cpp import Llama
 from gptqmodel import GPTQModel  # Ensure GPTQModel is installed or available
 from awq import AutoAWQForCausalLM
 
+
 # From project modules
 from bot0_config_agent.loaders.model_configs_models import (
     TransformersLoaderConfig,
     LlamaCppLoaderConfig,
     AWQLoaderConfig,
     GPTQLoaderConfig,
-    LoaderConfigEntry,
 )
 from bot0_config_agent.loaders.load_model_configs import load_model_configs
 from bot0_config_agent.agent_models.agent_models import (
@@ -75,7 +76,6 @@ from bot0_config_agent.agent_models.agent_models import (
     ToolChain,
 )
 from bot0_config_agent.utils.llm.llm_response_validators import (
-    validate_intent_response,
     validate_response_type,
     validate_tool_selection_or_steps,
 )
@@ -129,27 +129,6 @@ def get_llm_manager(model_name):
 #     }.get(s)
 
 
-# prompt_logger.py (add these)
-def log_messages(logger, messages, level=logging.INFO, mode="yaml"):
-    log_llm_payload(
-        logger,
-        label="LLM Messages",
-        payload={"messages": messages},
-        mode=mode,
-        level=level,
-    )
-
-
-def log_output(logger, label, text, level=logging.DEBUG, mode="yaml"):
-    log_llm_payload(
-        logger,
-        label=label,
-        payload={"raw_output": text},
-        mode=mode,
-        level=level,
-    )
-
-
 class LLMManager:
     """
     Loads and manages local LLMs (GPTQ, GGUF, or AWQ) for inference, with prompt formatting
@@ -165,24 +144,27 @@ class LLMManager:
         """
         self.loader: Optional[ModelLoaderType] = None
         self.tokenizer: Optional[Union[PreTrainedTokenizerBase, Llama]] = None
+        self._is_loaded = False  # <-- guard
         self.model: Optional[Any] = None
         self.model_name: str = model_name  # For logging
-
-        entry = load_model_configs(model_name)
-        self.loader = entry.loader
-        config: (
+        self.entry = load_model_configs(model_name)
+        self.loader = self.entry.loader
+        self.config: (
             AWQLoaderConfig
             | GPTQLoaderConfig
             | LlamaCppLoaderConfig
             | TransformersLoaderConfig
-        ) = entry.config  # Model loading config
+        ) = self.entry.load_config  # Model loading config
         self.generation_config: dict = (
-            entry.generation_config or {}
+            self.entry.generation_config or {}
         )  # ✅ Generation config
 
-        logger.info(f"[LLMManager] 📦 Initializing model: {model_name} ({self.loader})")
+        logger.info(
+            f"[LLMManager] 📦 Initializing model: {self.model_name} ({self.loader})"
+        )
 
-        self._load_model(config)
+        self._load_model(self.config)  # your existing dispatcher
+        self._is_loaded = True
 
     def cleanup_vram_cache(self):
         """
@@ -256,14 +238,12 @@ class LLMManager:
             {"role": "user", "content": user_prompt},
         ]
 
-        logger.info("[LLMManager] Messages:")
-
         # Debugging
         log_prompt_dict(
             logger,
             label="[LLMManager] Messages",
-            system_prompt=messages[0].get("content", ""),
-            user_prompt=messages[1].get("content", ""),
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
             mode="yaml",  # or "json" if you prefer
             level=logging.INFO,
         )
@@ -353,9 +333,17 @@ class LLMManager:
                             raise ValueError(
                                 f"Tool selection validation failed: {ve}"
                             ) from ve
-                logger.info(
-                    f"validated response content after validate_json_type: \n{validated_response_model}"
+                # logger.info(
+                #     f"validated response content after validate_json_type: \n{validated_response_model}"
+                # )
+                log_llm_payload(
+                    logger=logger,
+                    label="[LLMManager] validated response content after validate_json_type",
+                    payload=validated_response_model.model_dump(),
+                    mode="json",
+                    level=logging.INFO,
                 )
+
                 return validated_response_model
 
             elif isinstance(validated_response, (TextResponse, CodeResponse)):
@@ -465,115 +453,26 @@ class LLMManager:
             "Missing required 'model_id_or_path' (or 'model_path') in config.load_config."
         )
 
-    def _merge_awq_kwargs(self, load_cfg: dict, quant_cfg: dict | None) -> dict:
-        """
-        Merge load_config + quant_config for AutoAWQForCausalLM.from_quantized.
-        Adds a sensible default: fuse_layers=True (override in YAML if needed).
-        """
-        allowed = {
-            "device_map",
-            "max_memory",
-            "offload_folder",
-            "torch_dtype",
-            "trust_remote_code",
-            "fuse_layers",
-        }
-        merged: dict = {}
-
-        # from load_config
-        for k, v in (load_cfg or {}).items():
-            if k in ("model_id_or_path", "device"):  # handled elsewhere
-                continue
-            if k == "max_memory":
-                v = self._coerce_max_memory(v)
-            if k == "torch_dtype":
-                v = self._map_dtype(v)
-            if k in allowed and v is not None:
-                merged[k] = v
-
-        # from quant_config (e.g., fuse_layers)
-        for k, v in (quant_cfg or {}).items():
-            if k in allowed and v is not None:
-                merged[k] = v
-
-        merged.setdefault("fuse_layers", True)  # default helpful for AWQ
-        return {k: v for k, v in merged.items() if v is not None}
-
-    def _merge_gptq_kwargs(self, load_cfg: dict, quant_cfg: dict | None) -> dict:
-        """
-        Merge load_config + quant_config for GPTQModel.from_quantized/from_pretrained.
-        (No fuse_layers here.)
-        """
-        allowed = {
-            "device_map",
-            "max_memory",
-            "offload_folder",
-            "torch_dtype",
-            "trust_remote_code",
-        }
-        merged: dict = {}
-
-        for k, v in (load_cfg or {}).items():
-            if k in ("model_id_or_path", "device"):
-                continue
-            if k == "max_memory":
-                v = self._coerce_max_memory(v)
-            if k == "torch_dtype":
-                v = self._map_dtype(v)
-            if k in allowed and v is not None:
-                merged[k] = v
-
-        for k, v in (quant_cfg or {}).items():
-            if k in allowed and v is not None:
-                merged[k] = v
-
-        return {k: v for k, v in merged.items() if v is not None}
-
-    def _merge_transformers_kwargs(self, load_cfg: dict) -> dict:
-        """Merge kwargs for plain HF Transformers models (no quant config)."""
-        allowed = {
-            "device_map",
-            "torch_dtype",
-            "trust_remote_code",
-            "max_memory",
-        }
-        merged: dict = {}
-        for k, v in (load_cfg or {}).items():
-            if k in ("model_id_or_path",):
-                continue
-            if k == "max_memory":
-                v = self._coerce_max_memory(v)
-            if k in allowed:
-                merged[k] = v
-        return merged
-
     def _load_model_with_awq(self, config: AWQLoaderConfig) -> None:
         """
-        Load an AWQ quantized model using AutoAWQForCausalLM.from_quantized.
+        Load an AWQ-quantized model.
 
-        This method ensures that:
-        - The `device` is properly resolved (defaults to 'cuda' if available for
-            AWQ models).
-        - The model is initialized with the positional `model_id_or_path` argument
-            passed explicitly.
-
-        This is necessary because `from_quantized()` requires `model_id_or_path`
-        as a positional parameter, and we avoid including it in `**loader_kwargs`
-        to prevent accidental duplication or argument conflicts.
-
-        Extract path or id from pydantic model and returns separated dict.
-        Combine load_config and quant_config (if needed)
-        Load the model & load the tokenizer.
+        Steps:
+            1. Extract `model_id_or_path` from the HF-style `load_config` (Pydantic).
+            2. Normalize remaining loader kwargs and merge with `quant_config`.
+               - Coerces dtype, max_memory, etc.
+               - Defaults `device_map="auto"` if not specified.
+            3. Call `AutoAWQForCausalLM.from_quantized(model_id_or_path, **kwargs)`.
+            4. Load a matching tokenizer with `trust_remote_code` respected and ensure
+               `pad_token_id` is set.
 
         Args:
-            config (AWQLoaderConfig):
-                Configuration object for the AWQ model, including model path, device,
-                dtype, and other loader-specific options.
+            config (AWQLoaderConfig): Validated AWQ loader configuration.
         """
-        # 1) Get model id and normalized loader kwargs (dict)
-        model_id, load_cfg = self._extract_model_id(
-            config
-        )  # <— now accepts Pydantic model
+        # 1) HF load config (typed) -> dict
+        load_cfg_model = config.load_config  # HFLoadConfig (pydantic)
+        load_cfg: dict = load_cfg_model.model_dump()
+        model_id_or_path = load_cfg.pop("model_id_or_path")
 
         # 2) Quant kwargs (dict)
         quant_cfg = getattr(config, "quant_config", None)
@@ -582,21 +481,19 @@ class LLMManager:
         elif quant_cfg is None:
             quant_cfg = {}
 
-        # 3) Merge loader + quant kwargs (no explicit device; AWQ/accelerate handles placement)
+        # 3) Merge loader + quant kwargs (convert dtype, coerce max_memory, etc.)
         kwargs = self._merge_awq_kwargs(load_cfg, quant_cfg)
-        kwargs.setdefault(
-            "device_map", "auto"
-        )  # default shard/offload if not specified
+        kwargs.setdefault("device_map", "auto")  # shard/offload by default
 
         # 4) Load model
-        self.model = AutoAWQForCausalLM.from_quantized(model_id, **kwargs)
+        self.model = AutoAWQForCausalLM.from_quantized(model_id_or_path, **kwargs)
 
-        # 5) Tokenizer (respect trust_remote_code from either merged kwargs or load_cfg)
+        # 5) Tokenizer (respect trust_remote_code from merged kwargs or original load_cfg)
         trust_remote = bool(
             kwargs.get("trust_remote_code", load_cfg.get("trust_remote_code", False))
         )
         tok = AutoTokenizer.from_pretrained(
-            model_id, use_fast=True, trust_remote_code=trust_remote
+            model_id_or_path, use_fast=True, trust_remote_code=trust_remote
         )
         if tok.pad_token_id is None:
             tok.pad_token_id = tok.eos_token_id
@@ -604,26 +501,25 @@ class LLMManager:
 
     def _load_model_with_gptq(self, config: GPTQLoaderConfig) -> None:
         """
-        Load a GPTQ-quantized model from a Pydantic loader config.
+        Load a GPTQ-quantized model.
 
-        What this does:
-        - Extracts the positional `model_id_or_path` from the Pydantic config
-        (supports both flat configs and nested `load_config`).
-        - Normalizes `load_config` and `quant_config` (Pydantic -> dict).
-        - Merges them into GPTQ loader kwargs via `_merge_gptq_kwargs(...)`.
-        - Normalizes sharding/offload behavior:
-            * If `device_map` or `max_memory` is present → remove any explicit `device`.
-            * Otherwise, set single-device `device` (cuda if available, else cpu).
-        - Loads the model with `GPTQModel.from_quantized(model_id, **kwargs)`.
-        - Initializes a tokenizer and ensures `pad_token_id` is set.
+        Steps:
+            1. Extract `model_id_or_path` from the HF-style `load_config` (Pydantic).
+            2. Normalize remaining loader kwargs and merge with `quant_config`.
+               - Coerces dtype, max_memory, etc.
+               - If sharding/offload (`device_map` or `max_memory`) is set, drop `device`.
+               - Otherwise, default to single-device: 'cuda' if available, else 'cpu'.
+            3. Call `GPTQModel.from_quantized(model_id_or_path, **kwargs)`.
+            4. Load a matching tokenizer with `trust_remote_code` respected and ensure
+               `pad_token_id` is set.
 
         Args:
-            config (GPTQLoaderConfig): Validated GPTQ loader configuration model.
+            config (GPTQLoaderConfig): Validated GPTQ loader configuration.
         """
-        # 1) Extract model_id and normalized loader kwargs (dict)
-        model_id, load_cfg = self._extract_model_id(
-            config
-        )  # accepts the Pydantic model
+        # 1) HF load config (typed) -> dict; split out the positional id/path
+        load_cfg_model = config.load_config  # HFLoadConfig
+        load_cfg: dict = load_cfg_model.model_dump()
+        model_id_or_path = load_cfg.pop("model_id_or_path")
 
         # 2) Quant kwargs (dict)
         quant_cfg = getattr(config, "quant_config", None)
@@ -632,10 +528,10 @@ class LLMManager:
         elif quant_cfg is None:
             quant_cfg = {}
 
-        # 3) Merge kwargs for GPTQ (also where you normalize max_memory keys, etc.)
+        # 3) Merge kwargs for GPTQ (coerces max_memory, maps dtype, etc.)
         kwargs = self._merge_gptq_kwargs(load_cfg, quant_cfg)
 
-        # Consider both sharding and offload as "multi-device" → don't pass `device`
+        # If sharding/offload is configured, don't pass a single-device 'device'
         has_sharding = (
             "device_map" in kwargs and kwargs["device_map"] is not None
         ) or ("max_memory" in kwargs and kwargs["max_memory"])
@@ -645,16 +541,15 @@ class LLMManager:
             kwargs.setdefault("device", "cuda" if torch.cuda.is_available() else "cpu")
 
         # 4) Load model
-        self.model = GPTQModel.from_quantized(model_id, **kwargs)
+        self.model = GPTQModel.from_quantized(model_id_or_path, **kwargs)
 
-        # 5) Tokenizer (respect trust_remote_code from either merged kwargs or load_cfg)
+        # 5) Tokenizer (respect trust_remote_code from merged kwargs or original load_cfg)
         trust_remote = bool(
             kwargs.get("trust_remote_code", load_cfg.get("trust_remote_code", False))
         )
         tok = AutoTokenizer.from_pretrained(
-            model_id, use_fast=True, trust_remote_code=trust_remote
+            model_id_or_path, use_fast=True, trust_remote_code=trust_remote
         )
-        assert isinstance(tok, PreTrainedTokenizerBase)
         if tok.pad_token_id is None:
             tok.pad_token_id = tok.eos_token_id
         self.tokenizer = tok
@@ -747,7 +642,10 @@ class LLMManager:
         ),
     ) -> None:
         """
-        Load the model and tokenizer based on the config.
+        Load the model for the configured backend. Expects that:
+        - HF loaders (transformers/awq/gptq) have a typed HFLoadConfig at
+            .load_config
+        - llama_cpp has a raw dict at .load_config (already validated path)
 
         Args:
             config: BaseHFModelConfig | GGUFModelConfig): Model configuration
@@ -763,18 +661,36 @@ class LLMManager:
             config, "device", "cuda" if torch.cuda.is_available() else "cpu"
         )
 
-        # Get the model name for logging
+        loader = self.loader
+        assert loader is not None, "loader not set"
+
+        logger.debug(f"[LLMManager] loader={loader}")
+
+        if isinstance(config, LlamaCppLoaderConfig):
+            model_id_or_path = str(
+                config.load_config["model_id_or_path"]
+            )  # llama_cpp loader's load_config -> just Dict
+        else:
+            model_id_or_path = str(
+                config.load_config.model_id_or_path
+            )  # HFLoadConfig's load_config -> model
+
+        # Friendly display name for logs
+        display_id_or_path = model_id_or_path
         try:
-            model_id, _ = self._extract_model_id(config)
-            model_name = model_id
+            p = Path(model_id_or_path)
+            if p.is_absolute() or str(model_id_or_path).startswith(("./", "../", "~/")):
+                display_id_or_path = p.name
         except Exception:
-            model_name = getattr(config, "model_id_or_path", "unknown")
+            pass
 
         logger.info(
-            f"[LLMManager] ✅ Using model: {model_name} ({self.loader}) on {self.device}"
+            f"[LLMManager] ✅ Using model: {display_id_or_path} ({self.loader}) on {self.device}"
         )
 
-        log_gpu_usage(f"[LLMManager] before loading model {model_name}")  # ☑️ track vram
+        log_gpu_usage(
+            f"[LLMManager] before loading model {display_id_or_path}"
+        )  # ☑️ track vram
 
         # Dispatch based on loader
         if self.loader == "gptq":
@@ -792,23 +708,115 @@ class LLMManager:
         else:
             raise ValueError(f"Unsupported loader: {self.loader}")
 
-        log_gpu_usage(f"[LLMManager] after loading model {model_name}")  # ☑️ track vram
+        log_gpu_usage(
+            f"[LLMManager] after loading model {display_id_or_path}"
+        )  # ☑️ track vram
 
         # ---- ✅ embedding-specific checkpoint (generic across all loaders) ----
         # * This is for log embedding VRAM usage
         if getattr(self, "model", None) is not None and self.loader != "llama_cpp":
             try:
                 # totals across all embedding modules
-                log_embedding_footprint(self.model, label=f"{model_name}")
+                log_embedding_footprint(self.model, label=f"{self.model_name}")
 
                 # optionally, confirm the input embedding exists and log again
                 emb = getattr(self.model, "get_input_embeddings", lambda: None)()
                 if emb is not None:
                     log_embedding_footprint(
-                        self.model, label=f"{model_name}:input_emb_only"
+                        self.model, label=f"{self.model_name}:input_emb_only"
                     )
             except Exception as e:
                 logger.debug(f"[LLMManager] Embedding logging skipped: {e}")
+
+    def _load_model_once(self) -> None:
+        """Ensure model is only loaded once per instance."""
+        if getattr(self, "_is_loaded", False) and self.model is not None:
+            return  # already loaded
+
+        self._load_model(self.config)  # your existing dispatcher
+        self._is_loaded = True
+
+    def _merge_awq_kwargs(self, load_cfg: dict, quant_cfg: dict | None) -> dict:
+        """
+        Merge load_config + quant_config for AutoAWQForCausalLM.from_quantized.
+        Adds a sensible default: fuse_layers=True (override in YAML if needed).
+        """
+        allowed = {
+            "device_map",
+            "max_memory",
+            "offload_folder",
+            "torch_dtype",
+            "trust_remote_code",
+            "fuse_layers",
+        }
+        merged: dict = {}
+
+        # from load_config
+        for k, v in (load_cfg or {}).items():
+            if k in ("model_id_or_path", "device"):  # handled elsewhere
+                continue
+            if k == "max_memory":
+                v = self._coerce_max_memory(v)
+            if k == "torch_dtype":
+                v = self._map_dtype(v)
+            if k in allowed and v is not None:
+                merged[k] = v
+
+        # from quant_config (e.g., fuse_layers)
+        for k, v in (quant_cfg or {}).items():
+            if k in allowed and v is not None:
+                merged[k] = v
+
+        merged.setdefault("fuse_layers", True)  # default helpful for AWQ
+        return {k: v for k, v in merged.items() if v is not None}
+
+    def _merge_gptq_kwargs(self, load_cfg: dict, quant_cfg: dict | None) -> dict:
+        """
+        Merge load_config + quant_config for GPTQModel.from_quantized/from_pretrained.
+        (No fuse_layers here.)
+        """
+        allowed = {
+            "device_map",
+            "max_memory",
+            "offload_folder",
+            "torch_dtype",
+            "trust_remote_code",
+        }
+        merged: dict = {}
+
+        for k, v in (load_cfg or {}).items():
+            if k in ("model_id_or_path", "device"):
+                continue
+            if k == "max_memory":
+                v = self._coerce_max_memory(v)
+            if k == "torch_dtype":
+                v = self._map_dtype(v)
+            if k in allowed and v is not None:
+                merged[k] = v
+
+        for k, v in (quant_cfg or {}).items():
+            if k in allowed and v is not None:
+                merged[k] = v
+
+        return {k: v for k, v in merged.items() if v is not None}
+
+    def _merge_transformers_kwargs(self, load_cfg: dict) -> dict:
+        """Merge kwargs for plain HF Transformers models (no quant config)."""
+        allowed = {
+            "device_map",
+            "torch_dtype",
+            "trust_remote_code",
+            "max_memory",
+        }
+        merged: dict = {}
+        for k, v in (load_cfg or {}).items():
+            if k in ("model_id_or_path",):
+                continue
+            if k == "max_memory":
+                v = self._coerce_max_memory(v)
+            if k in allowed:
+                merged[k] = v
+        return merged
 
     def _format_prompt(self, user_prompt: str, system_prompt: str = "") -> str:
         return f"System: {system_prompt}\nUser: {user_prompt}\nAssistant:"

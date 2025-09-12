@@ -290,6 +290,26 @@ def load_task_decomposition_prompt(
         raise TypeError(
             f"Expected a dict for task_decomposition, got {type(task_decomp_prompts).__name__} ({task_decomp_prompts!r})"
         )
+
+    # Ensure multi-line strings are preserved
+    for key, value in task_decomp_prompts.items():
+        if isinstance(value, str) and "\n" in value:
+            lines = value.rstrip("\n").split("\n")
+            task_decomp_prompts[key] = (
+                "\n".join(lines) + "\n"
+            )  # Ensure consistent newline
+
+            logger.debug(
+                f"Preserved prompt {key}: {repr(task_decomp_prompts[key])}"
+            )  # todo: debug; delete later
+
+    # todo: debug; delete later
+    logger.debug(
+        f"Raw task_decomposition prompts after loading from yaml.j2: {repr(task_decomp_prompts)}"
+    )
+    for key, value in task_decomp_prompts.items():
+        logger.debug(f"Prompt {key}: {repr(value)}")
+
     return task_decomp_prompts
 
 

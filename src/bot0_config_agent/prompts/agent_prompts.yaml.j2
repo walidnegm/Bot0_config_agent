@@ -18,16 +18,15 @@ intent_classifier:
       <result>Single-step</result>
       If it needs to be split up due to complexity, token limits, or memory, output:
       <result>Multi-step</result>
-  
+
       Only respond with one <result>...</result> tag.
 
-      <Examples>
-      User task: List all files in the project.
-      <result>Single-step</result>
-
-      User task: Summarize every Python file in this 200-file repo.
-      <result>Multi-step</result>
-      </Examples>
+      ### Example format (for clarity only, do not repeat):
+      # User task: List all files in the project.
+      # <result>Single-step</result>
+      #
+      # User task: Summarize every Python file in this 200-file repo.
+      # <result>Multi-step</result>
 
     user_task_prompt: |
       User task: {{ user_task }}
@@ -82,7 +81,7 @@ planner:
     {% endfor %}
 
     <Example>
-    Example:
+    Example Example (User task: Read the project's README file.):
     [
       {
         "tool": "read_files",
@@ -112,7 +111,7 @@ planner:
     {% endfor %}
 
     <Example>
-    Example (task: list all files in ./agent and summarize the first two files):
+    Example (User task: list all files in ./configs and summarize the first 4 config files):
     [
       {
         "tool": "list_project_files",
@@ -127,11 +126,11 @@ planner:
         "params": {
           "sort_by": "name",
           "order": "asc",
-          "limit": 10
+          "limit": 4
         }
       },
       {
-        "tool": "summarize_files",
+        "tool": "summarize_config_files",
         "params": {}
       }
     ]

@@ -252,6 +252,21 @@ class Planner:
         else:  # multi-step: user prompt-> single tool & res model -> ToolCall
             user_prompt = combine_prompts(prompts_dic["select_multi_tool_prompt"])
 
+            # todo: logging to debug why this is correct and classifier's is wrong; delete later
+            # logger.info(f"prompt_dict: {prompts_dic}")
+            # logger.debug(
+            #     f"Raw single_vs_multi_step_prompt: {repr(prompts_dic.get('select_multi_tool_prompt', ''))}"
+            # )
+            # logger.debug(
+            #     f"Raw user_task_prompt: {repr(prompts_dic.get('return_json_only_prompt', ''))}"
+            # )
+            # logger.debug(
+            #     f"Raw user_task_prompt: {repr(prompts_dic.get('user_task_prompt', ''))}"
+            # )
+            # logger.debug("user_prompt (repr): %r", user_prompt)
+            # logger.debug("user_prompt (pretty):\n%s", user_prompt)
+            # todo: to be deleted later
+
             # Log final planner prompt (human-friendly)
             log_prompt_dict(
                 logger=logger,
@@ -409,6 +424,8 @@ class Planner:
         """
         assert self.local_model_name is not None
 
+        # Instantiate LLMManager from llm_manager module (include memory cache
+        # to load only once - avoid duplicate model loading/memory efficient)
         llm = get_llm_manager(self.local_model_name)
 
         validated_result = llm.generate(

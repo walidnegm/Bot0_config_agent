@@ -33,10 +33,10 @@ Example Usage:
     )
 """
 
-from typing import TYPE_CHECKING
 import json
 import logging
-from typing import Optional, Sequence, Union
+from typing import Optional, Sequence, Union, TYPE_CHECKING
+from textwrap import dedent
 
 # From project modules
 from bot0_config_agent.agent_models.agent_models import TextResponse
@@ -44,7 +44,10 @@ from bot0_config_agent.prompts.load_agent_prompts import (
     load_describe_only_prompt,
     load_task_decomposition_prompt,
 )
-from bot0_config_agent.utils.llm.llm_prompt_payload_logger import log_prompt_dict
+from bot0_config_agent.utils.llm.llm_prompt_payload_logger import (
+    log_prompt_dict,
+    _LiteralString,
+)
 
 if TYPE_CHECKING:
     from bot0_config_agent.agent.planner import Planner
@@ -115,37 +118,53 @@ async def classify_task_decomposition_async(
     Args:
         instruction (str): The user instruction.
         planner (Planner): An instance of Planner with dispatch_llm_async.
-        xml_tag (Optional[Union[str, Sequence[str]]]): Optional xml_tag for text or
-            code response, such as "result" -> parses content inside <result>...</result>.
+        xml_tag (Optional[Union[str, Sequence[str]]]):
+            Optional xml_tag for text or code response,
+            such as "result" -> parses content inside <result>...</result>.
             Default to "result".
 
     Returns:
         str: "single-step", "multi-step", or "unknown"/"error".
     """
     try:
-        cfg = load_task_decomposition_prompt(user_task=instruction)
+        prompts_dict = load_task_decomposition_prompt(user_task=instruction)
 
         # Build prompts separately (no concatenation into system)
-        system_prompt = (cfg.get("system_prompt") or "").strip()
+        system_prompt = (prompts_dict.get("system_prompt") or "").strip()
 
-        user_prompt = "\n".join(
-            p
-            for p in [
-                cfg.get("single_vs_multi_step_prompt", "").strip(),
-                cfg.get("user_task_prompt", "").strip(),
-            ]
-            if p
+        # Use planner-style combine_prompts
+        user_prompt = (
+            prompts_dict.get("single_vs_multi_step_prompt", "")
+            + "\n"
+            + prompts_dict.get("user_task_prompt", "")
         )
 
-        # Log full prompt before calling LLM - use structured logger
-        log_prompt_dict(
-            logger,
-            label="LLMManager",
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            mode="yaml",  # or "human"/"json"
-            level=logging.INFO,
+        # todo: Debug Log raw and combined prompts; delete later
+        logger.info(f"prompts_dict: {prompts_dict}")
+        logger.debug(
+            f"Raw single_vs_multi_step_prompt: {repr(prompts_dict.get('single_vs_multi_step_prompt', ''))}"
         )
+        logger.debug(
+            f"Raw user_task_prompt: {repr(prompts_dict.get('user_task_prompt', ''))}"
+        )
+        # logger.debug("user_prompt (repr): %r", user_prompt)
+
+        # todo: delete later
+        logger.debug(
+            "[intent_classifier]\n--- system_prompt ---\n%s\n--- user_prompt ---\n%s",
+            system_prompt,
+            user_prompt,
+        )
+
+        # todo: commented out/does't work for now
+        # log_prompt_dict(
+        #     logger=logger,
+        #     label="intent classifier",
+        #     system_prompt=system_prompt,
+        #     user_prompt=user_prompt,
+        #     mode="yaml",  # or "raw"/"json"
+        #     level=logging.INFO,
+        # )
 
         result_obj = await planner.dispatch_llm_async(
             system_prompt=system_prompt,  # Not needed; included in template

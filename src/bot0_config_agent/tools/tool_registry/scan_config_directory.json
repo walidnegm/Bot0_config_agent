@@ -1,7 +1,7 @@
 {
-    "name": "summarize_config_files",
+    "name": "scan_config_directory",
     "description": "Recursively scans a directory for config-like files, extracting top-level keys and identifying potential secrets based on keywords like 'key', 'token', and 'password'.",
-    "import_path": "bot0_config_agent.tools.tool_scripts.summarize_config_files.summarize_config_files",
+    "import_path": "bot0_config_agent.tools.tool_scripts.scan_config_directory.scan_config_directory",
     "parameters": {
         "type": "object",
         "properties": {
@@ -12,7 +12,7 @@
         },
         "required": []
     },
-    "input_model": "SummarizeConfigInput",
-    "output_model": "SummarizeConfigResult"
+    "input_model": "ScanConfigDirectoryInput",
+    "output_model": "ScanConfigDirectoryResult"
 }
 

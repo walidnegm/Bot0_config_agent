@@ -16,9 +16,10 @@ mistral-7b-awq:
 """
 
 import os
+import re
 from pathlib import Path
 import logging
-from typing import cast, Optional, Dict, Any
+from typing import Optional, Dict, Any
 import yaml
 
 from bot0_config_agent.loaders.model_configs_models import LoaderConfigEntry
@@ -38,6 +39,9 @@ TOKEN_MAP = {
     "<MODELS_DIR>": str(MODELS_DIR),
     "<OFFLOAD_DIR>": str(OFFLOAD_DIR),
 }
+
+# Hugging Face Repository Regex
+_HF_REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
 
 def deep_merge(
@@ -140,7 +144,7 @@ def load_model_configs(
 
     # ----- Validate/normalize with your existing schema -----
     try:
-        return LoaderConfigEntry.parse_with_loader(model_name, entry)
+        return LoaderConfigEntry.parse_entry(model_name, entry)
     except Exception as e:
         # Don’t mislabel schema/validation as file-not-found; bubble clearly.
         raise ValueError(f"Invalid model config for '{model_name}': {e}") from e
@@ -178,7 +182,11 @@ def _ensure_defaults(entry: dict) -> dict:
 
 
 def _is_pathlike(s: str) -> bool:
-    return isinstance(s, str) and ("/" in s or "\\" in s)
+    return (
+        isinstance(s, str)
+        and ("/" in s or "\\" in s)
+        and not _HF_REPO_RE.match(s)  # don't treat HF repo IDs as paths
+    )
 
 
 def _subst_tokens(x, token_map):

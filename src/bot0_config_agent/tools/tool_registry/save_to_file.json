@@ -1,0 +1,53 @@
+{
+  "name": "save_to_file",
+  "description": "Saves exactly one artifact to disk with atomic writes and optional compression.",
+  "import_path": "bot0_config_agent.tools.tool_scripts.save_to_file.save_to_file",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "content": {
+        "description": "Content to write. For json: dict/list or JSON string. For ndjson: iterable of items or NDJSON string. For txt: string.",
+        "oneOf": [
+          { "type": "string" },
+          { "type": "object" },
+          { "type": "array" }
+        ]
+      },
+      "path": {
+        "type": "string",
+        "description": "Relative path (including file name and extension) under base_dir."
+      },
+      "format": {
+        "type": "string",
+        "enum": ["json", "ndjson", "txt", "yaml", "raw"],
+        "description": "Serialization format."
+      },
+      "mode": {
+        "type": "string",
+        "enum": ["atomic", "append", "fail_if_exists"],
+        "default": "atomic",
+        "description": "Write mode. 'append' only for txt/ndjson."
+      },
+      "encoding": {
+        "type": "string",
+        "default": "utf-8",
+        "description": "Text encoding for json/ndjson/txt/yaml."
+      },
+      "compress": {
+        "type": "string",
+        "enum": ["none", "gzip"],
+        "default": "none",
+        "description": "Optional compression. Adds .gz suffix if missing."
+      },
+      "base_dir": {
+        "type": "string",
+        "default": ".",
+        "description": "Base directory to resolve `path` against."
+      }
+    },
+    "required": ["content", "path", "format"],
+    "additionalProperties": false
+  },
+  "input_model": "SaveToFileInput",
+  "output_model": "SaveToFileResult"
+}

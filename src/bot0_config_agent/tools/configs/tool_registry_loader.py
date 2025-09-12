@@ -1,5 +1,5 @@
 """
-tools/workbench/tool_registry_loader.py
+tools/configs/tool_registry_loader.py
 
 Utility functions for loading a *tool registry* from a directory.
 

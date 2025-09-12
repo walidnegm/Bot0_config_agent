@@ -1,5 +1,5 @@
 """
-tools/workbench/tool_registry.py
+tools/configs/tool_registry.py
 
 * Core code for registry for tool metadata and transform routing.
 

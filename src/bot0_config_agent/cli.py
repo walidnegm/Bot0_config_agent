@@ -27,7 +27,11 @@ python -m bot0_config_agent.cli --api-model claude-sonnet-4-20250514 --once "Fir
 python -m bot0_config_agent.cli --api-model gpt-4.1-mini --once "list all files in the ./bot0_config_agent/agent directory and read the first 3 files."
 python -m bot0_config_agent.cli --local-model deepseek_coder_1_3b_gptq --once "list all files in the ./bot0_config_agent/agent directory and read the first file."
 python -m bot0_config_agent.cli --local-model lfm2_1_2b --once "list all files in the ./bot0_config_agent/agent directory and summarize the first 3 files."
+python -m bot0_config_agent.cli --local-model qwen3_1_7b_instruct_gptq --once "list all files in the ./bot0_config_agent/configs directory and read the first 3 config files."
 python -m bot0_config_agent.cli --local-model phi_3_5_mini_awq --once "list all files in the ./bot0_config_agent/agent directory and summarize them."
+python -m bot0_config_agent.cli --local-model gemma_2_2b_gptq --once "list all files in the ./bot0_config_agent/agent directory and read the first file."
+python -m bot0_config_agent.cli --local-model gemma_2_2b_gptq --once "list all files in the ./bot
+0_config_agent/configs directory and summarize the first 3 config files."
 
 # Show all available models and their descriptions:
 python -m bot0_config_agent.cli --show-models-help

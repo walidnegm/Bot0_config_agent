@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple, Union
 import json
-
+import uuid
 
 # ---------------------------
 # Small helpers (robust & duck-typed)
@@ -307,34 +307,89 @@ def prompt_to_prompt(source_result: Any, **_) -> Dict[str, Any]:
     return {"prompt": body}
 
 
-def summary_to_prompt(
+def select_to_files(source_result: Any, **_) -> Dict[str, Any]:
+    """
+    source: select_files → target: read_files | summarize_config_files
+
+    Extracts the selected file paths from a `select_files` tool result
+        and normalizes them into the list format expected by downstream
+        tools.
+
+    Accepts:
+      - {"result": {"selected_paths": [...]}}
+      - {"result": {"files": [...]}}
+      - {"result": {"paths": [...]}}
+      - Or a dict with those keys at top-level.
+
+    Output:
+      {"files": [<paths>]}
+    """
+    d = _as_dict(source_result)
+    r = d.get("result", d)
+    paths = r.get("selected_paths") or r.get("files") or r.get("paths")
+    return {"files": _ensure_list(paths)}
+
+
+def config_summary_to_prompt(
     source_result: Any, instruction: Optional[str] = None, **_
 ) -> Dict[str, Any]:
     """
-    source: summarize_files | summarize_config_files → target: llm_response_async
-    Build a prompt from summaries.
+    source: summarize_config_files | scan_config_directory → target: llm_response_async
+    Build a prompt from structured config summaries.
     Output: {"prompt": <str>}
     """
     d = _as_dict(source_result)
-    # Prefer 'summary' key; otherwise fall back to entries with 'content'
-    summaries: List[Dict[str, Any]] = _ensure_list(d.get("summary"))
+    r = d.get("result", d)
+
+    # Prefer new structured shapes
+    summaries = []
+    if isinstance(r, dict):
+        if isinstance(r.get("summary"), list):
+            summaries = r["summary"]
+        elif isinstance(r.get("configs"), list):
+            summaries = r["configs"]
+
+    # Fallbacks (older shapes or content-style)
+    if not summaries:
+        summaries = _ensure_list(d.get("summary"))
     if not summaries:
         summaries = _extract_content_entries(d)
 
     chunks: List[str] = []
     for s in summaries:
-        f = ""
-        c = s
         if isinstance(s, dict):
-            f = s.get("file") or s.get("path") or ""
-            c = s.get("content", s)
-        text = f"##### SUMMARY for {f}\n{c}" if f else f"{c}"
-        if isinstance(text, (str, bytes)):
-            chunks.append(
-                text if isinstance(text, str) else text.decode("utf-8", "ignore")
-            )
+            file = s.get("file") or s.get("path") or ""
+            # Prefer structured keys/secrets if present; otherwise use 'content' or stringify
+            keys = s.get("keys")
+            secrets = s.get("secrets")
+            content = s.get("content")
 
-    header = instruction or "Use the following summaries:"
+            if isinstance(keys, list) or isinstance(secrets, list):
+                lines = []
+                if isinstance(keys, list):
+                    lines.append(f"Keys: {', '.join(keys) if keys else '(none)'}")
+                if isinstance(secrets, list):
+                    lines.append(
+                        f"Secrets: {', '.join(secrets) if secrets else '(none)'}"
+                    )
+                if "error" in s:
+                    lines.append(f"Error: {s['error']}")
+                body = "\n".join(lines)
+            elif isinstance(content, str):
+                body = content
+            else:
+                try:
+                    body = json.dumps(s, ensure_ascii=False, indent=2)
+                except Exception:
+                    body = str(s)
+
+            header = f"##### SUMMARY for {file}\n" if file else ""
+            chunks.append(header + body)
+        else:
+            # non-dict entry
+            chunks.append(str(s))
+
+    header = instruction or "Use the following configuration summaries:"
     prompt = _pretty_join_text([header, *chunks])
     return {"prompt": prompt}
 
@@ -353,3 +408,225 @@ def path_to_file_param(source_result: Any, **_) -> Dict[str, Any]:
         if isinstance(path, dict) and "path" in path:
             path = path["path"]
     return {"file": path} if _is_pathlike_str(path) else {"file": ""}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# SaveToFile / SaveFiles transformation stubs
+# These exist so ToolRegistry can import them without errors while you build
+# the actual save tools. They only shape parameters; they do no I/O.
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def _infer_format_from_content(content: Any) -> str:
+    """
+    Heuristic: pick a serialization format if the caller didn't.
+    - dict/list -> json
+    - otherwise -> txt
+    """
+    if isinstance(content, (dict, list)):
+        return "json"
+    return "txt"
+
+
+def _fallback_path(kind: str = "misc", ext: str = "txt") -> str:
+    """
+    Always return a relative path (never absolute). This is only a placeholder
+    so SaveToFile has something to write to if invoked during early wiring.
+    """
+    # Keep it short and obviously disposable
+    return f"artifacts/dry_run/{kind}/{uuid.uuid4().hex}.{ext}"
+
+
+# ----------------------------- Single-file: SaveToFile -----------------------------
+
+
+def contents_to_save_payload(source: Any) -> Dict[str, Any]:
+    """
+    Transform read_files-style output into a SaveToFile payload.
+    Accepts a variety of shapes and falls back to a safe, minimal payload.
+
+    Returns:
+      { "content": <any>, "path": "<relative/path.ext>", "format": "json|txt" }
+    """
+    # Common shapes we might see:
+    # - {"files": [{"path": "...", "content": "..."}, ...]}
+    # - [{"path": "...", "content": "..."}]
+    # - {"content": "..."}  or just a plain string/dict
+    content = None
+
+    if isinstance(source, dict):
+        if "files" in source and isinstance(source["files"], list) and source["files"]:
+            first = source["files"][0]
+            content = first.get("content")
+            # Derive extension from the *original* file if present; else guess
+            ext = "txt"
+            if isinstance(first.get("path"), str) and "." in first["path"]:
+                ext = first["path"].rsplit(".", 1)[-1]
+            fmt = _infer_format_from_content(content)
+            # Use a generic dry-run path; downstream can overwrite via planner
+            path = _fallback_path(
+                kind="read_files", ext="txt" if fmt == "txt" else "json"
+            )
+            return {"content": content, "path": path, "format": fmt}
+        if "content" in source:
+            content = source["content"]
+
+    if content is None:
+        # Fallback: stringify whatever we got
+        content = str(source)
+
+    fmt = _infer_format_from_content(content)
+    path = _fallback_path(kind="read_files", ext="txt" if fmt == "txt" else "json")
+    return {"content": content, "path": path, "format": fmt}
+
+
+def config_summary_to_save_payload(source: Any) -> Dict[str, Any]:
+    """
+    Transform summarize_config_files-style output into a SaveToFile payload.
+    Default to JSON since summaries are structured most of the time.
+    """
+    # Common shapes:
+    # - {"summary": {...}, "source": "..."} or {"summaries": [ {...}, ... ]}
+    if isinstance(source, dict):
+        if "summary" in source:
+            content = source["summary"]
+            return {
+                "content": content,
+                "path": _fallback_path(kind="summaries", ext="json"),
+                "format": "json",
+            }
+        if (
+            "summaries" in source
+            and isinstance(source["summaries"], list)
+            and source["summaries"]
+        ):
+            content = source["summaries"][0]
+            return {
+                "content": content,
+                "path": _fallback_path(kind="summaries", ext="json"),
+                "format": "json",
+            }
+
+    # Fallback
+    content = source if isinstance(source, (dict, list)) else str(source)
+    fmt = _infer_format_from_content(content)
+    return {
+        "content": content,
+        "path": _fallback_path(
+            kind="summaries", ext="json" if fmt == "json" else "txt"
+        ),
+        "format": fmt,
+    }
+
+
+# ----------------------------- Batch: SaveFiles -----------------------------
+
+
+def select_to_save_batch(source: Any) -> Dict[str, Any]:
+    """
+    Transform select_files output into a SaveFiles payload.
+    Returns:
+      { "files": [ {content, path, format}, ... ], "transactional": false }
+    """
+    files: List[Dict[str, Any]] = []
+    if isinstance(source, dict) and isinstance(source.get("selected"), list):
+        for item in source["selected"]:
+            content = item.get("content", "")
+            fmt = _infer_format_from_content(content)
+            files.append(
+                {
+                    "content": content,
+                    "path": _fallback_path(
+                        kind="select_files", ext="txt" if fmt == "txt" else "json"
+                    ),
+                    "format": fmt,
+                }
+            )
+    # Fallback: treat the whole source as one item
+    if not files:
+        fmt = _infer_format_from_content(source)
+        files.append(
+            {
+                "content": (
+                    source if isinstance(source, (dict, list, str)) else str(source)
+                ),
+                "path": _fallback_path(
+                    kind="select_files", ext="txt" if fmt == "txt" else "json"
+                ),
+                "format": fmt,
+            }
+        )
+    return {"files": files, "transactional": False}
+
+
+def dir_to_save_batch(source: Any) -> Dict[str, Any]:
+    """
+    Transform find_dir_structure output into a SaveFiles payload (placeholder).
+    """
+    files: List[Dict[str, Any]] = []
+    # If there is a 'files' array, use first few as placeholders
+    if isinstance(source, dict) and isinstance(source.get("files"), list):
+        for _ in source["files"][:3]:
+            files.append(
+                {
+                    "content": "placeholder",
+                    "path": _fallback_path(kind="dir_structure", ext="txt"),
+                    "format": "txt",
+                }
+            )
+    if not files:
+        files.append(
+            {
+                "content": "placeholder",
+                "path": _fallback_path(kind="dir_structure", ext="txt"),
+                "format": "txt",
+            }
+        )
+    return {"files": files, "transactional": False}
+
+
+def files_to_save_batch(source: Any) -> Dict[str, Any]:
+    """
+    Transform tools that output file lists into a SaveFiles payload (placeholder).
+    """
+    files: List[Dict[str, Any]] = []
+    # Common shapes: {"files": [...] } or a plain list of paths
+    candidates = []
+    if isinstance(source, dict) and isinstance(source.get("files"), list):
+        candidates = source["files"]
+    elif isinstance(source, list):
+        candidates = source
+
+    for _ in candidates[:3] if candidates else []:
+        files.append(
+            {
+                "content": "placeholder",
+                "path": _fallback_path(kind="files", ext="txt"),
+                "format": "txt",
+            }
+        )
+    if not files:
+        files.append(
+            {
+                "content": "placeholder",
+                "path": _fallback_path(kind="files", ext="txt"),
+                "format": "txt",
+            }
+        )
+    return {"files": files, "transactional": False}
+
+
+def path_to_save_batch(source: Any) -> Dict[str, Any]:
+    """
+    Transform a single located path into a one-element SaveFiles payload (placeholder).
+    """
+    return {
+        "files": [
+            {
+                "content": "placeholder",
+                "path": _fallback_path(kind="path", ext="txt"),
+                "format": "txt",
+            }
+        ],
+        "transactional": False,
+    }

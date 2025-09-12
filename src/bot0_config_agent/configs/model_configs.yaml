@@ -54,7 +54,7 @@ qwen3_1_7b_instruct_gptq:
   generation_config:
     max_new_tokens: 512
     temperature: 0.4
-    top_p: 0.9
+    top_p: 0.7
 
 qwen3_4b_awq:
   loader: awq

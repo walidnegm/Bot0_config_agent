@@ -108,3 +108,107 @@ Hints for your planner:
 * Easier for experimentation: one manifest edit can change planner behavior for multiple tools.
 
 ---
+
+
+# Save to File Tool – High-Level Plan
+
+The goal is to enable the agent to **persist intermediate or final artifacts** (schemas, summaries, code outputs) into files, so they can be reused across sessions.
+
+---
+
+## 1. Motivation
+
+* Generated schemas and summaries should not vanish after a single run.
+* Having a **consistent naming convention** makes it easy for LLMs to reload and analyze them later.
+* Supports **flat filenames** with embedded path or a **project/…/file.json** hierarchy.
+
+---
+
+## 2. Core Components
+
+1. **Tool Schema (`tool_registry.json`)**
+
+   * Define a new tool: `save_to_file`.
+   * Parameters:
+
+     * `content` (string or object) – what to save.
+     * `path` (string) – logical/relative path for storage (e.g., `project/schemas/...json`).
+     * `format` (enum: json, yaml, txt) – how to serialize.
+
+2. **Tool Implementation**
+
+   * Reads params, ensures directory exists.
+   * Serializes `content` in the requested format.
+   * Writes file safely (atomic write or temp + rename).
+   * Returns success metadata (saved path, size, hash).
+
+3. **File Naming Strategy**
+
+   * **Option A (hierarchical):**
+
+     ```
+     project/schemas/bot0_config_agent.agent.planner.py.json
+     ```
+
+     Mirrors module path for clarity.
+   * **Option B (flat with path embedded in filename):**
+
+     ```
+     project.schemas.bot0_config_agent.agent.planner.py.json
+     ```
+
+     Avoids deep directories, keeps everything under `schemas/`.
+   * **Optional Manifest:**
+     Maintain a JSON manifest mapping logical names → actual file paths, with hashes for integrity.
+
+4. **Integration with Planner/Executor**
+
+   * Add tool entry into `tool_registry.json`.
+   * Register any required transformation (e.g., convert ToolResult → `content` string).
+   * FSM/Planner can now route steps like `summarize_files → save_to_file`.
+
+5. **Optional Enhancements**
+
+   * **Hashing:** Compute SHA256 per file for deduplication.
+   * **Manifest:** Keep `manifest.json` with `{ "file": "...", "hash": "...", "created": ... }`.
+   * **Compression:** Allow `.gz` option for very large outputs.
+
+---
+
+## 3. Workflow Example
+
+1. **Planner decides:**
+
+   ```
+   [
+     { "tool": "summarize_files", "params": { "files": [...] } },
+     { "tool": "save_to_file", "params": { 
+         "content": "<step_0.summary>",
+         "path": "project/summaries/cli.py.json",
+         "format": "json"
+     }}
+   ]
+   ```
+
+2. **Executor runs:**
+
+   * `summarize_files` → produces summary.
+   * `save_to_file` → writes `cli.py.json`.
+
+3. **Result:**
+
+   * Summary persisted under predictable name.
+   * Next run can `read_files` or `summarize_config` against it.
+
+---
+
+## 4. Deliverables to Build
+
+* [ ] **Implementation module** in `tools/tool_scripts/save_to_file.py`.
+* [ ] **Serialization helpers** (JSON/YAML/text).
+* [ ] **Tests**: verify round-trip save & reload.
+* [ ] **Planner integration**: add transformations if needed.
+* [ ] **Manifest management** (optional, phase 2).
+
+---
+

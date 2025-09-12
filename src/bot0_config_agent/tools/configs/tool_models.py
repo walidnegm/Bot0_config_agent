@@ -1,4 +1,4 @@
-"""tools/workbench/tool_models.py"""
+"""bottools/configs/tool_models.py"""
 
 # Standard and 3rd party imports
 from __future__ import annotations
@@ -585,6 +585,91 @@ class RetrievalToolResult(ToolOutput):
 
 
 # =============================================================================
+# save_to_file
+# =============================================================================
+
+
+class SaveToFileInput(BaseModel):
+    """
+    Input contract for saving exactly one artifact.
+
+    Notes:
+    - `path` must be RELATIVE to `base_dir` (no absolute paths).
+    - `format` governs serialization and must match `content` type.
+    - `append` is only allowed for txt / ndjson.
+    """
+
+    content: Any = Field(
+        ...,
+        description="Content to write. For json: dict/list or JSON string. For ndjson: iterable of items or NDJSON string. For txt: string.",
+    )
+    path: str = Field(
+        ...,
+        description="Relative file path (including file name and extension), e.g., 'project/schemas/bot0_config_agent.agent.planner.py.json'.",
+    )
+    format: str = Field(
+        ..., description="One of: 'json', 'ndjson', 'txt', 'yaml', 'raw'."
+    )
+    mode: Optional[str] = Field(
+        default="atomic",
+        description="Write mode: 'atomic' (default), 'append', or 'fail_if_exists'.",
+    )
+    encoding: Optional[str] = Field(
+        default="utf-8", description="Text encoding for json/ndjson/txt/yaml."
+    )
+    compress: Optional[str] = Field(
+        default="none",
+        description="Compression mode: 'none' (default) or 'gzip'. Adds .gz suffix if missing.",
+    )
+    base_dir: Optional[str] = Field(
+        default=".",
+        description="Base directory to resolve `path` against. Must exist or be creatable.",
+    )
+
+    @field_validator("format")
+    @classmethod
+    def _check_format(cls, v: str) -> str:
+        allowed = {"json", "ndjson", "txt", "yaml", "raw"}
+        v2 = (v or "").lower()
+        if v2 not in allowed:
+            raise ValueError(f"format must be one of {sorted(allowed)}")
+        return v2
+
+    @field_validator("mode")
+    @classmethod
+    def _check_mode(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        allowed = {"atomic", "append", "fail_if_exists"}
+        v2 = v.lower()
+        if v2 not in allowed:
+            raise ValueError(f"mode must be one of {sorted(allowed)}")
+        return v2
+
+    @field_validator("compress")
+    @classmethod
+    def _check_compress(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        allowed = {"none", "gzip"}
+        v2 = v.lower()
+        if v2 not in allowed:
+            raise ValueError(f"compress must be one of {sorted(allowed)}")
+        return v2
+
+
+class SaveToFileResult(BaseModel):
+    """
+    Output contract for a single-file save.
+    """
+
+    path: str
+    bytes_written: int
+    checksum: str
+    created_at: str
+
+
+# =============================================================================
 # seed_parser
 # =============================================================================
 
@@ -766,8 +851,8 @@ class SelectFilesResult(BaseModel):
 # =============================================================================
 
 
-class SummarizeConfigFilesInput(BaseModel):
-    """Input: summarize config files in root directory."""
+class ScanConfigDirectoryInput(BaseModel):
+    """Input: base directory to scan for config-like files."""
 
     dir: Optional[Path | str] = None
 
@@ -776,10 +861,10 @@ class SummarizeConfigFilesInput(BaseModel):
         return str(v) if v is not None else None
 
 
-class SummarizeConfigFilesResult(ToolOutput):
+class ScanConfigDirectoryResult(ToolOutput):
     """Output: plain-text configuration summary under result."""
 
-    result: Optional[str] = None
+    result: Dict
 
 
 # =============================================================================
@@ -787,13 +872,95 @@ class SummarizeConfigFilesResult(ToolOutput):
 # =============================================================================
 
 
-class SummarizeFilesInput(BaseModel):
+class SummarizeConfigFilesInput(BaseModel):
     """Input: list of config file paths to summarize."""
 
     files: List[str]
 
 
-class SummarizeFilesResult(ToolOutput):
+class SummarizeConfigFilesResult(ToolOutput):
     """Output: plain-text per-file summary under result."""
 
-    result: Optional[str] = None
+    result: Dict
+
+
+# todo: add later
+# from __future__ import annotations
+
+# from typing import List, Optional
+# from pathlib import Path
+# from pydantic import BaseModel, Field, ConfigDict, field_serializer
+
+# # Assuming you already have this in your project:
+# # from bot0_config_agent.agent_models.tool_output import ToolOutput
+
+
+# # ─────────────────────────────────────────────────────────────────────────────
+# # Common item models
+# # ─────────────────────────────────────────────────────────────────────────────
+
+# class ConfigFileSummary(BaseModel):
+#     """
+#     Per-file summary used by both directory-scan and explicit-file tools.
+#     If 'error' is present, 'keys' may contain placeholder markers (e.g., '<parse error>').
+#     """
+#     file: str
+#     keys: List[str] = Field(default_factory=list)
+#     secrets: List[str] = Field(default_factory=list)
+#     error: Optional[str] = None
+
+
+# class ScanConfigDirectoryPayload(BaseModel):
+#     """
+#     Payload for scan results: list of discovered config-like files under 'configs'.
+#     """
+#     configs: List[ConfigFileSummary] = Field(default_factory=list)
+
+
+# class SummarizeConfigFilesPayload(BaseModel):
+#     """
+#     Payload for explicit-file summaries:
+#       - 'summary' always present
+#       - 'errors' present only if any file failed to parse / missing, etc.
+#     """
+#     summary: List[ConfigFileSummary] = Field(default_factory=list)
+#     errors: Optional[List[dict]] = None   # [{"file": str, "error": str}, ...] when present
+
+
+# # ─────────────────────────────────────────────────────────────────────────────
+# # Inputs
+# # ─────────────────────────────────────────────────────────────────────────────
+
+# class ScanConfigDirectoryInput(BaseModel):
+#     """Input: base directory to scan for config-like files (recursively)."""
+#     dir: Optional[Path | str] = None
+
+#     @field_serializer("dir")
+#     def _path_as_str(self, v: Path | None):
+#         return str(v) if v is not None else None
+
+
+# class SummarizeConfigFilesInput(BaseModel):
+#     """Input: list of config file paths to summarize (no directory scanning)."""
+#     files: List[str] = Field(min_length=1)
+
+
+# # ─────────────────────────────────────────────────────────────────────────────
+# # Results (ToolOutput wrappers)
+# # ─────────────────────────────────────────────────────────────────────────────
+
+# class ScanConfigDirectoryResult(ToolOutput):
+#     """
+#     Output: structured discovery result.
+#     result.configs -> List[ConfigFileSummary]
+#     """
+#     result: Optional[ScanConfigDirectoryPayload] = None
+
+
+# class SummarizeConfigFilesResult(ToolOutput):
+#     """
+#     Output: structured per-file summary.
+#     result.summary -> List[ConfigFileSummary]
+#     result.errors  -> Optional[List[{'file': str, 'error': str}]]
+#     """
+#     result: Optional[SummarizeConfigFilesPayload] = None
