@@ -1,181 +1,93 @@
-"""prompts/load_agent_prompts.py
+"""
+prompts/load_agent_prompts.py
 
-Robust prompt section loader for multi-agent tool system.
-Supports planner, summarizer, evaluator, and intent_classifier sections.
-Auto-injects tools into planner. Jinja2 + YAML.
+MCP-native prompt loader for Bot0 Config Agent.
+- Uses Jinja2 + YAML to render structured prompt sections.
+- Injects MCP-discovered tools dynamically (no local ToolRegistry).
 """
 
 import logging
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 from jinja2 import Environment, FileSystemLoader
 import yaml
 from configs.paths import AGENT_PROMPTS
-from tools.tool_registry import ToolRegistry
-from typing import Any, Dict, List
+
 logger = logging.getLogger(__name__)
 
-
-def _to_dict(obj):
-    # Pydantic model → dict
-    if hasattr(obj, "model_dump"):
-        return obj.model_dump()
-    return obj if isinstance(obj, dict) else {}
-
-
-def _extract_parameters(spec_dict):
-    """
-    Return a simple {param: {type: "<type>"}} shape that your Jinja template expects.
-    Handles either JSON Schema style {"properties": {...}} or already-flat dicts.
-    """
-    params = spec_dict.get("parameters") or {}
-    params = _to_dict(params)
-    props = params.get("properties") or {}
-    props = _to_dict(props)
-
-    # Flatten any nested pydantic fields
-    simple = {}
-    for name, meta in props.items():
-        meta = _to_dict(meta)
-        simple[name] = {"type": meta.get("type", "string")}
-    return simple
-
-
+# ---------------------------------------------------------------------
+# Core Jinja rendering helper
+# ---------------------------------------------------------------------
 def _load_section(
     section: str,
     template_path: Path | str = AGENT_PROMPTS,
     **kwargs,
 ) -> Dict[str, Any]:
     """
-    Loads and renders a section of the Jinja2+YAML prompt template.
-
-    Args:
-        section (str): Section name to extract from YAML (e.g. "planner", "summarizer").
-        template_path (Path|str): Path to the Jinja2 YAML prompt template.
-        **kwargs: Variables to inject (user_task, tools, etc.).
-
-    Returns:
-        Dict[str, Any]: All key/value pairs under the given section.
+    Load and render a section from the YAML + Jinja template.
+    Injects any provided kwargs (user_task, tools, etc.).
     """
     template_dir = str(Path(template_path).parent)
     template_name = Path(template_path).name
     logger.info(f"[load_agent_prompts] Using template: {template_path} (section='{section}')")
+
     env = Environment(loader=FileSystemLoader(template_dir))
     template = env.get_template(template_name)
     rendered = template.render(**kwargs)
+
     cfg = yaml.safe_load(rendered)
     return cfg.get(section, {})
 
 
+# ---------------------------------------------------------------------
+# Planner prompt loader (MCP-aware)
+# ---------------------------------------------------------------------
 def load_planner_prompts(
     user_task: str = "",
     tools: List[Dict[str, Any]] = None,
     template_path: Path | str = AGENT_PROMPTS,
-    local_model: bool = False,  # Added to detect local models
+    local_model: bool = False,
 ) -> Dict[str, Any]:
     """
-    Loads the planner prompt section with tools injected.
-    """
-    tools = tools or ToolRegistry().get_all()
-    tools_list = []
-    for tool in tools:
-        params = _extract_parameters(tool)
-        tools_list.append({
-            "name": tool["name"],
-            "description": tool["description"],
-            "parameters": params,
-        })
+    Loads the planner section with MCP-discovered tools injected.
 
+    Args:
+        user_task: User's natural-language instruction.
+        tools: List of tools obtained from the MCP client (each a dict with 'name', 'description', etc.).
+        template_path: Path to the YAML+Jinja template file.
+        local_model: Optional flag for prompt specialization.
+    """
+    tools_list = tools or []
     return _load_section(
         section="planner",
         template_path=template_path,
         user_task=user_task,
         tools=tools_list,
-        local_model=local_model,  # Inject for conditional prompt
+        local_model=local_model,
     )
 
 
-def load_summarizer_prompts(
-    user_task: str = "",
-    template_path: Path | str = AGENT_PROMPTS,
-) -> Dict[str, Any]:
-    """
-    Loads the summarizer prompt section.
-    """
-    return _load_section(
-        section="summarizer",
-        template_path=template_path,
-        user_task=user_task,
-    )
+# ---------------------------------------------------------------------
+# Other static sections remain unchanged
+# ---------------------------------------------------------------------
+def load_summarizer_prompts(user_task: str = "", template_path: Path | str = AGENT_PROMPTS) -> Dict[str, Any]:
+    return _load_section(section="summarizer", template_path=template_path, user_task=user_task)
 
 
-def load_evaluator_prompts(
-    task: str = "",
-    response: str = "",
-    template_path: Path | str = AGENT_PROMPTS,
-) -> Dict[str, Any]:
-    """
-    Loads the evaluator prompt section.
-    """
-    return _load_section(
-        section="evaluator",
-        template_path=template_path,
-        task=task,
-        response=response,
-        user_task=task,  # Alias for consistency
-    )
+def load_evaluator_prompts(task: str = "", response: str = "", template_path: Path | str = AGENT_PROMPTS) -> Dict[str, Any]:
+    return _load_section(section="evaluator", template_path=template_path, task=task, response=response, user_task=task)
 
 
-def load_intent_classifier_prompts(
-    user_task: str = "",
-    template_path: Path | str = AGENT_PROMPTS,
-) -> Dict[str, Any]:
-    """
-    Loads the intent_classifier prompt section (for both task_decomposition
-    and describe_only).
-    """
-    return _load_section(
-        section="intent_classifier",
-        template_path=template_path,
-        user_task=user_task,
-    )
+def load_intent_classifier_prompts(user_task: str = "", template_path: Path | str = AGENT_PROMPTS) -> Dict[str, Any]:
+    return _load_section(section="intent_classifier", template_path=template_path, user_task=user_task)
 
 
-def load_task_decomposition_prompt(
-    user_task: str = "",
-    template_path: Path | str = AGENT_PROMPTS,
-) -> Dict[str, Any]:
-    """
-    Loads just the task_decomposition subkey from intent_classifier.
-    """
-    prompts = _load_section(
-        section="intent_classifier",
-        template_path=template_path,
-        user_task=user_task,
-    )
-    task_decomp_prompts = prompts["task_decomposition"]
-    if not isinstance(task_decomp_prompts, dict):
-        raise TypeError(
-            f"Expected a dict for task_decomposition, got {type(task_decomp_prompts).__name__} ({task_decomp_prompts!r})"
-        )
-    return task_decomp_prompts
+def load_task_decomposition_prompt(user_task: str = "", template_path: Path | str = AGENT_PROMPTS) -> Dict[str, Any]:
+    prompts = _load_section(section="intent_classifier", template_path=template_path, user_task=user_task)
+    return prompts.get("task_decomposition", {})
 
 
-def load_describe_only_prompt(
-    user_task: str = "",
-    template_path: Path | str = AGENT_PROMPTS,
-) -> Dict[str, Any]:
-    """
-    Loads just the describe_only subkey from intent_classifier.
-    """
-    prompts = _load_section(
-        section="intent_classifier",
-        template_path=template_path,
-        user_task=user_task,
-    )
-    desc_only_prompts = prompts["describe_only"]
-    if not isinstance(desc_only_prompts, dict):
-        raise TypeError(
-            f"Expected a dict for describe_only, got {type(desc_only_prompts).__name__} ({desc_only_prompts!r})"
-        )
-    return desc_only_prompts
+def load_describe_only_prompt(user_task: str = "", template_path: Path | str = AGENT_PROMPTS) -> Dict[str, Any]:
+    prompts = _load_section(section="intent_classifier", template_path=template_path, user_task=user_task)
+    return prompts.get("describe_only", {})
+

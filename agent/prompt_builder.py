@@ -3,21 +3,22 @@ agent/prompt_builder.py
 Builds and manages prompts for the tool-calling agent.
 Prompts are populated with the registered tools at runtime (Jinja2).
 """
-
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from agent.llm_manager import LLMManager
-from tools.tool_registry import ToolRegistry
 from prompts.load_agent_prompts import (
     load_planner_prompts,
     load_evaluator_prompts,
     load_intent_classifier_prompts,
 )
 
+if TYPE_CHECKING:
+    from tools.tool_registry import ToolRegistry
+
 class PromptBuilder:
     def __init__(
         self,
         llm_manager: Optional[LLMManager] = None,
-        tool_registry: Optional[ToolRegistry] = None,
+        tool_registry: Optional["ToolRegistry"] = None,
     ):
         """
         Initialize PromptBuilder with an LLMManager and ToolRegistry.
@@ -27,13 +28,20 @@ class PromptBuilder:
             tool_registry (Optional[ToolRegistry]): Registry of available tools.
         """
         self.llm_manager = llm_manager
-        self.tool_registry = tool_registry or ToolRegistry()
+        self.tool_registry = tool_registry
         self.is_local = bool(llm_manager.local_model) if llm_manager else False
 
     def build_planner_prompt(self, instruction: str) -> List[Dict[str, str]]:
         """
         Build the planner prompt with available tools injected.
         """
+        tool_list = []
+        if self.tool_registry:
+            try:
+                tool_list = self.tool_registry.get_all()
+            except Exception:
+                pass  # fallback to empty tool list in MCP mode
+        
         prompt_dict = load_planner_prompts(
             user_task=instruction,
             tools=self.tool_registry.get_all(),

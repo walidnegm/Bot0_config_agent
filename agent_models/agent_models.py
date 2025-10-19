@@ -226,6 +226,31 @@ class ToolChain(BaseModel):
         }
     )
 
+# --- 5. Tool Results (Execution Outputs) ---
+from agent_models.step_state import StepState
+from agent_models.step_status import StepStatus
+from pydantic import field_validator
+
+
+class ToolResult(BaseModel):
+    """
+    Represents the output of a single tool execution.
+    """
+
+    tool: str
+    state: StepState = StepState.PENDING
+    status: StepStatus = StepStatus.SUCCESS
+    message: str = ""
+    result: Optional[Any] = None
+
+    # Normalize uppercase state values like "COMPLETED"
+    @field_validator("state", mode="before")
+    @classmethod
+    def normalize_state(cls, v):
+        if isinstance(v, str):
+            v = v.lower().strip()
+        return v
+
 
 # --- Intent Classification for Agent Routing ---
 class IntentClassificationResponse(BaseResponseModel):

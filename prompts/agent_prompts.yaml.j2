@@ -6,10 +6,18 @@ planner:
     You are a tool-planning AI. Your sole function is to receive a user request and output a JSON array of tool calls.
     Output ONLY a line with "FINAL_JSON" followed by a valid JSON array of tool calls in the format [{"tool": "tool_name", "params": {...}}].
     Do NOT include conversational text, explanations, or other output. Any deviation from this format will be ignored.
+    Each tool call should use placeholders like <step_0.result> to reference prior outputs.
 
   main_planner_prompt: |
-    Review the user's task and create a JSON array of tool calls to solve it. Break the task into necessary steps using the tools below.
-
+    Review the user's task and create a JSON array of tool calls to solve it. Break the task into necessary steps using available tools.
+    The user may ask for operations such as summarizing code or configuration files.
+    Plan the sequence of tools in valid JSON. Example:
+    [
+      {"tool": "list_project_files", "params": {"root": ".", "include": [".py"], "exclude": ["venv", "__pycache__"]}},
+      {"tool": "read_files", "params": {"path": "<step_0.result>"}},
+      {"tool": "aggregate_file_content", "params": {"steps": ["<step_1.result>"]}},
+      {"tool": "llm_response_async", "params": {"prompt": "Summarize the project based on: <step_2.result>"}}
+    ]
     === Tool List ===
     {% for tool in tools %}
     {% set params = tool.parameters or {} %}

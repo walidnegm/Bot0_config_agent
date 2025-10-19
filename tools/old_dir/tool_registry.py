@@ -20,6 +20,10 @@ class ToolRegistry:
         self.registry_path = Path(registry_path)
         self.tools: Dict[str, ToolSpec] = self._load_and_validate_tools()
 
+
+    def list_tools(self) -> list[str]:
+        return list(self.tools.keys())
+
     def get_all(self) -> List[Dict[str, Any]]:
         """Returns a list of tool specifications for use in prompts."""
         tool_list = []

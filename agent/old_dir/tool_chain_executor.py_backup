@@ -14,22 +14,26 @@ Key features:
 """
 
 from __future__ import annotations
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 import asyncio
 import json
 import logging
 from enum import Enum
-from pydantic import ValidationError
+from pathlib import Path
 
-from agent_models import ToolChain, StepStatus
-from tools.tool_models import ToolResults, ToolOutput, ToolResult
+from pydantic import ValidationError
+# Replace this line:
+# from agent_models import ToolChain, ToolResults, StepStatus
+
+# With this:
+from agent_models import ToolChain, StepStatus  # Core models from agent_models
+from tools.tool_models import ToolResults, ToolOutput, ToolResult  # Tool-specific from tools
+
+# Assume MCPToolAdapter is defined elsewhere (e.g., in cli.py or a utils module)
+# from utils.mcp_adapter import MCPToolAdapter  # Or inline it
 
 logger = logging.getLogger(__name__)
 
-
-# ==========================================================
-# FSM & State Management
-# ==========================================================
 class StepState(Enum):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
@@ -37,9 +41,11 @@ class StepState(Enum):
     FAILED = "failed"
     SKIPPED = "skipped"
 
-
 class ToolChainFSM:
-    """Lightweight FSM for tool chain states."""
+    """
+    Lightweight FSM for tool chain states. Transitions based on step outcomes.
+    States: PENDING → IN_PROGRESS → (COMPLETED/SKIPPED/FAILED).
+    """
     def __init__(self):
         self.current_state: StepState = StepState.PENDING
 
@@ -54,23 +60,23 @@ class ToolChainFSM:
                 self.current_state = StepState.COMPLETED
             else:
                 self.current_state = StepState.FAILED
-        elif outcome == StepStatus.ERROR:
+        elif outcome == StepStatus.ERROR:  # Global failure
             self.current_state = StepState.FAILED
         return self.current_state
 
-
-# ==========================================================
-# Placeholder Resolver
-# ==========================================================
 class PlaceholderResolver:
-    """Recursive resolver for placeholders like <step_0> or <prev_output>."""
+    """
+    Recursive resolver for placeholders like <step_0>, <prev_output>, or JSON splices.
+    Supports list splicing and dict embedding.
+    """
     @staticmethod
     def _extract_placeholder(value: Any, results: List[Dict[str, Any]]) -> Any:
         if not isinstance(value, str):
             return value
         if value.startswith("<step_") and value.endswith(">"):
+            idx_str = value[6:-1]
             try:
-                idx = int(value[6:-1])
+                idx = int(idx_str)
                 if 0 <= idx < len(results):
                     return results[idx].get("result")
             except ValueError:
@@ -84,33 +90,27 @@ class PlaceholderResolver:
         if isinstance(value, dict):
             return {k: PlaceholderResolver.resolve(v, results) for k, v in value.items()}
         elif isinstance(value, list):
-            return [PlaceholderResolver.resolve(v, results) for v in value]
+            return [PlaceholderResolver.resolve(item, results) for item in value]
         elif isinstance(value, str):
             ph = PlaceholderResolver._extract_placeholder(value, results)
             if ph is not None:
+                # Recursive splice if ph is complex
                 return PlaceholderResolver.resolve(ph, results)
+            return value
         return value
 
-
-# ==========================================================
-# ToolChain Executor (MCP-First)
-# ==========================================================
 class ToolChainExecutor:
     """
-    Executes a validated ToolChain asynchronously.
-    Primary execution path: MCP remote adapter.
-    Fallback: local callable registry if provided.
+    Executes a validated ToolChain asynchronously. Supports local registry or MCP remote execution.
     """
-
     def __init__(
         self,
         mcp_adapter: Optional["MCPToolAdapter"] = None,
         strict_deps: bool = True,
-        registry: Optional[Any] = None,
+        registry: Optional[ToolRegistry] = None,
     ):
         self.mcp_adapter = mcp_adapter
-        # 🔥 Remove ToolRegistry — MCP is authoritative
-        self.registry = registry  # Only used if explicitly injected
+        self.registry = registry or ToolRegistry()
         self.strict_deps = strict_deps
         self.fsm = ToolChainFSM()
         self.resolver = PlaceholderResolver()
@@ -118,83 +118,94 @@ class ToolChainExecutor:
     async def _run_tool_once(
         self, step: Dict[str, Any], prev_results: List[Dict[str, Any]]
     ) -> ToolOutput:
-        """Execute a single tool step (via MCP or fallback)."""
+        """
+        Execute a single tool step. Resolves params first, then dispatches via MCP or local.
+        Normalizes output to ToolOutput.
+        """
         tool_name = step["tool"]
         params = step.get("params", {})
-        resolved_params = self.resolver.resolve(params, prev_results)
-        logger.debug(f"[Executor] Resolved params for {tool_name}: {resolved_params}")
 
-        # ✅ Prefer MCP remote execution
+        # Resolve placeholders recursively
+        resolved_params = self.resolver.resolve(params, prev_results)
+        logger.debug(f"Resolved params for {tool_name}: {resolved_params}")
+
         if self.mcp_adapter:
-            try:
-                raw_result = await self.mcp_adapter.execute_tool(tool_name, resolved_params)
-                status_str = str(raw_result.get("status", "success")).lower()
-                message = raw_result.get("message", "")
-                result_payload = raw_result.get("result")
-                status = StepStatus.SUCCESS if "success" in status_str else StepStatus.ERROR
-            except Exception as e:
-                logger.error(f"[Executor] MCP execution failed for {tool_name}: {e}")
-                return ToolOutput(status=StepStatus.ERROR, message=f"MCP error: {e}", result=None)
-        elif self.registry:
-            # ⚙️ Local registry fallback (manual tool call)
+            # MCP remote execution
+            raw_result = await self.mcp_adapter.execute_tool(tool_name, resolved_params)
+            status_str = raw_result.get("status", "success").lower()
+            message = raw_result.get("message", "")
+            result_payload = raw_result.get("result")
+            status = StepStatus.SUCCESS if "success" in status_str else StepStatus.ERROR
+        else:
+            # Local registry fallback
             try:
                 tool_fn = self.registry.get_function(tool_name)
-                exec_result = (
-                    await tool_fn(**resolved_params)
-                    if asyncio.iscoroutinefunction(tool_fn)
-                    else tool_fn(**resolved_params)
-                )
+                # Handle sync/async tool fns
+                if asyncio.iscoroutinefunction(tool_fn):
+                    exec_result = await tool_fn(**resolved_params)
+                else:
+                    exec_result = tool_fn(**resolved_params)
+                
+                # Assume exec_result is already ToolOutput-like dict
                 if isinstance(exec_result, dict):
                     status_str = exec_result.get("status", "success").lower()
                     message = exec_result.get("message", "")
                     result_payload = exec_result.get("result")
                     status = StepStatus.SUCCESS if "success" in status_str else StepStatus.ERROR
                 else:
+                    # Fallback for raw outputs
+                    status = StepStatus.SUCCESS
                     message = f"Executed {tool_name}"
                     result_payload = exec_result
-                    status = StepStatus.SUCCESS
             except Exception as e:
-                logger.error(f"[Executor] Local tool failed for {tool_name}: {e}")
-                return ToolOutput(status=StepStatus.ERROR, message=f"Local tool error: {e}", result=None)
-        else:
-            logger.error(f"[Executor] No MCP adapter or registry available for tool '{tool_name}'")
-            return ToolOutput(status=StepStatus.ERROR, message="No execution backend", result=None)
+                logger.error(f"Local execution failed for {tool_name}: {e}")
+                return ToolOutput(
+                    status=StepStatus.ERROR,
+                    message=f"Tool execution error: {e}",
+                    result=None
+                )
 
-        # Normalize payload
+        # Final normalization
         if not isinstance(result_payload, (dict, list)):
             result_payload = {"value": str(result_payload)}
-
         return ToolOutput(status=status, message=message, result=result_payload)
 
     def _check_deps_met(self, step: Dict[str, Any], results: List[Dict[str, Any]]) -> bool:
-        """Dependency enforcement (future expansion)."""
-        return True
+        """
+        Check if step dependencies (e.g., required prior steps) are met in strict mode.
+        Placeholder: Implement based on step['deps'] if added to ToolChain.
+        """
+        # TODO: If ToolCall has 'deps: [step_ids]', check all completed
+        return True  # Default: No deps enforced
 
     async def execute(self, tool_chain: ToolChain) -> ToolResults:
-        """Main async executor."""
+        """
+        Main execution loop: FSM-driven, async steps, collects ToolResults.
+        """
         if not tool_chain.steps:
             return ToolResults(results=[])
 
         results: List[Dict[str, Any]] = []
         current_state = self.fsm.initial_state()
-        logger.info(f"[Executor] Executing {len(tool_chain.steps)} step(s)")
+        logger.info(f"Executing {len(tool_chain.steps)} steps")
 
         for step_idx, step in enumerate(tool_chain.steps):
-            logger.info(f"[Executor] ▶️ Step {step_idx}: {step['tool']}")
+            logger.debug(f"Step {step_idx}: {step['tool']}")
+
             if self.strict_deps and not self._check_deps_met(step, results):
-                logger.warning(f"[Executor] Skipping step {step_idx}: deps unmet")
-                results.append(
-                    {
-                        "step_id": str(step_idx),
-                        "tool": step["tool"],
-                        "params": step.get("params", {}),
-                        "status": StepStatus.SKIPPED,
-                        "message": "Dependencies not met",
-                        "result": None,
-                    }
-                )
+                logger.warning(f"Skipping step {step_idx}: Dependencies unmet")
+                result = {
+                    "step_id": str(step_idx),
+                    "tool": step["tool"],
+                    "params": step.get("params", {}),
+                    "status": StepStatus.SKIPPED,
+                    "message": "Dependencies not met",
+                    "result": None,
+                }
+                results.append(result)
                 continue
 
+            # Run the step
             tool_output = await self._run_tool_once(step, results)
             result = {
                 "step_id": str(step_idx),
@@ -203,32 +214,34 @@ class ToolChainExecutor:
                 "status": tool_output.status,
                 "message": tool_output.message,
                 "result": tool_output.result,
-                "state": StepState.COMPLETED
-                if tool_output.status == StepStatus.SUCCESS
-                else StepState.FAILED,
+                "state": StepState.COMPLETED if tool_output.status == StepStatus.SUCCESS else StepState.FAILED,
             }
             results.append(result)
 
+            # FSM transition
             current_state = self.fsm.transition(current_state, tool_output.status)
             if current_state == StepState.FAILED:
-                logger.warning("[Executor] Chain failed — stopping early.")
+                logger.warning("Chain failed; aborting remaining steps")
                 break
 
-            await asyncio.sleep(0.01)  # yield control
+            # Optional: Yield for parallelism if non-sequential
+            await asyncio.sleep(0.01)  # Yield control
 
-        success_count = sum(1 for r in results if r["status"] == StepStatus.SUCCESS)
-        logger.info(f"[Executor] Execution complete: {success_count} successful step(s)")
+        logger.info(f"Execution complete: {len([r for r in results if r['status'] == StepStatus.SUCCESS])} successes")
         return ToolResults(results=results)
 
-    async def execute_with_fallback(self, tool_chain: ToolChain, max_retries: int = 3) -> ToolResults:
-        """Retry wrapper for transient MCP errors."""
+    async def execute_with_fallback(
+        self, tool_chain: ToolChain, max_retries: int = 3
+    ) -> ToolResults:
+        """
+        Execute with retry logic for transient errors (e.g., MCP timeouts).
+        """
         for attempt in range(max_retries):
             try:
                 return await self.execute(tool_chain)
             except Exception as e:
-                logger.warning(f"[Executor] Attempt {attempt+1}/{max_retries} failed: {e}")
+                logger.warning(f"Execution attempt {attempt + 1} failed: {e}")
                 if attempt == max_retries - 1:
                     raise
-                await asyncio.sleep(2 ** attempt)
+                await asyncio.sleep(2 ** attempt)  # Exponential backoff
         raise RuntimeError("All retries exhausted")
-

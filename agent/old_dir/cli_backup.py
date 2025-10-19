@@ -63,7 +63,6 @@ class MCPToolAdapter:
         self.session = session
 
     async def get_all_tools(self) -> List[Dict[str, Any]]:
-        """Return a normalized list of all available tools."""
         tools_resp = await self.session.list_tools()
         return [
             {
@@ -75,7 +74,6 @@ class MCPToolAdapter:
         ]
 
     async def execute_tool(self, tool_name: str, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute a tool via MCP and normalize its result."""
         try:
             result = await self.session.call_tool(tool_name, params)
             content = getattr(result, "content", result)
@@ -113,15 +111,16 @@ def get_available_models(config_file: Path = MODEL_CONFIGS_YAML_FILE) -> List[st
         logger.error(f"Failed to load model configs from {config_file}: {e}")
         return []
 
-
 def display_result(result_data: dict, console: Console = None):
     """Pretty-print tool results with smart unwrapping and parsing."""
+
+    import ast, json, textwrap
     import ast, json, textwrap
     if RICH_AVAILABLE:
         from rich.markdown import Markdown
     else:
         Markdown = None
-
+    
     def normalize(obj):
         if hasattr(obj, "text") and isinstance(obj.text, str):
             return obj.text
@@ -134,20 +133,23 @@ def display_result(result_data: dict, console: Console = None):
     safe_result = normalize(result_data.get("result"))
     safe_message = normalize(result_data.get("message"))
 
+    # ✅ Attempt to parse escaped dict/JSON strings for prettier display
     def try_parse(value):
         if not isinstance(value, str):
             return value
         try:
+            # handle Python-style dicts with single quotes
             return ast.literal_eval(value)
         except Exception:
             try:
                 return json.loads(value)
             except Exception:
-                return value
+                return value  # fallback to raw string
 
     safe_result = try_parse(safe_result)
     safe_message = try_parse(safe_message)
 
+    # 🖼️ Rich console formatting
     if console and RICH_AVAILABLE:
         console.print(f"\n🔧 [bold cyan]Tool:[/bold cyan] {result_data.get('tool')}")
         console.print(f"🗨️ [dim]Message:[/dim] {safe_message}")
@@ -165,27 +167,42 @@ def display_result(result_data: dict, console: Console = None):
         else:
             print(textwrap.fill(str(safe_result), width=100))
 
-
 # -------------------------------------------------------------------------
 # Core MCP execution flow
 # -------------------------------------------------------------------------
-async def run_agent_with_mcp(instruction: str, agent: AgentCore, mcp_adapter: MCPToolAdapter, console: Console = None):
+async def run_agent_with_mcp(
+    instruction: str, agent: AgentCore, mcp_adapter: MCPToolAdapter, console: Console = None
+):
     """Executes the planned MCP tool chain for a given user instruction."""
 
+    tools_for_prompt = await mcp_adapter.get_all_tools()
     plan = await agent.planner.plan_async(instruction)
     logger.info(f"Planned steps: {len(plan.steps) if hasattr(plan, 'steps') else 'N/A'}")
 
     results: Dict[str, Any] = {}
 
+    # --- Helper for unwrapping TextContent, dicts, JSON, etc.
+    
+    
     def unwrap_value(val):
+        """Flatten nested TextContent, dicts, and text blobs into usable values."""
         import re, json, ast
+
+        # Handle TextContent
         if hasattr(val, "text"):
             val = val.text
+
+        # Handle lists
         if isinstance(val, list):
             return [unwrap_value(v) for v in val]
+
+        # Handle dicts
         if isinstance(val, dict):
             return json.dumps(val, indent=2)
+
+        # Handle strings
         if isinstance(val, str):
+            # ✅ Detect literal list as string (e.g., "['a.yaml', 'b.yaml']")
             if val.strip().startswith("[") and val.strip().endswith("]"):
                 try:
                     parsed = ast.literal_eval(val)
@@ -193,30 +210,101 @@ async def run_agent_with_mcp(instruction: str, agent: AgentCore, mcp_adapter: MC
                         return parsed
                 except Exception:
                     pass
+
+            # ✅ Detect "result=['a.yaml','b.yaml']" pattern
             m = re.search(r"result=\[([^\]]+)\]", val)
             if m:
                 inner = m.group(1)
-                files = [f.strip().strip("'\"") for f in inner.split(",") if f.strip().strip("'\"")]
+                files = [
+                    f.strip().strip("'\"")
+                    for f in inner.split(",")
+                    if f.strip().strip("'\"")
+                ]
                 return files
+
+            # ✅ Detect JSON-like outputs from read_files
+            if '"files"' in val or "'files'" in val:
+                try:
+                    parsed = json.loads(val.replace("'", '"'))
+                    if isinstance(parsed, dict) and "result" in parsed:
+                        files = parsed.get("result", {}).get("files", [])
+                        if isinstance(files, list):
+                            return "\n\n".join(f.get("content", "") for f in files)
+                except Exception:
+                    pass
+
         return val
 
+
+    # --- Execute planned steps sequentially
     for i, step in enumerate(getattr(plan, "steps", [])):
         tool_name = step.tool
         params = step.params
 
+        # 🔁 Resolve <step_n> placeholders dynamically
         for k, v in params.items():
             if isinstance(v, str) and v.startswith("<step_"):
                 ref_val = unwrap_value(results.get(v.strip("<>"), ""))
                 params[k] = ref_val
+            elif isinstance(v, list):
+                flattened = []
+                for x in v:
+                    resolved = (
+                        unwrap_value(results.get(x.strip("<>"), x))
+                        if isinstance(x, str) and x.startswith("<step_")
+                        else x
+                    )
+                    if isinstance(resolved, list):
+                        flattened.extend(resolved)
+                    else:
+                        flattened.append(resolved)
+                params[k] = flattened
+        for k, v in list(params.items()):
+            if isinstance(v, list) and len(v) == 1 and isinstance(v[0], list):
+                params[k] = v[0]
+        
+        # 🧠 NEW: Flatten file dicts → readable text (for LLM summary steps)
+        for k, v in list(params.items()):
+            if isinstance(v, list) and all(isinstance(x, dict) and "content" in x for x in v):
+                params[k] = "\n\n---\n\n".join(
+                    f"## {x.get('path')}\n{x.get('content')}" for x in v
+                )
+            elif isinstance(v, dict) and "content" in v:
+                params[k] = f"## {v.get('path')}\n{v.get('content')}"
+        
+        for k, v in params.items():
+            if isinstance(v, str) and "<step_" in v:
+                for key, val in results.items():
+                    if key in v:
+                        unwrapped = unwrap_value(val)
+                        if isinstance(unwrapped, list) and all(
+                            isinstance(x, dict) and "content" in x for x in unwrapped
+                        ):
+                            file_text = "\n\n---\n\n".join(
+                                f"## {x.get('path')}\n{x.get('content')}" for x in unwrapped
+                            )
+                            v = v.replace(f"<{key}>", file_text)
+                        else:
+                            v = v.replace(f"<{key}>", str(unwrapped))
+                params[k] = v
 
         result_dict = await mcp_adapter.execute_tool(tool_name, params)
         display_result(result_dict, console)
         results[f"step_{i}"] = result_dict.get("result")
 
+    # ✅ Build ToolResults
     tool_result_objects = [
-        ToolResult(step_id=k, tool="mcp", params={}, status="success", message=str(v), result=v)
+        ToolResult(
+            step_id=k,
+            tool="mcp",
+            params={},
+            status="success",
+            message=str(v),
+            result=v,
+        )
         for k, v in results.items()
     ]
+
     return ToolResults(results=tool_result_objects)
 
 
@@ -269,36 +357,40 @@ async def main():
         logger.info("[MCP Client] ✅ Connected and initialized.")
         mcp_adapter = MCPToolAdapter(session)
 
-        # ✅ Dynamically fetch authoritative MCP tool inventory
-        tools_for_prompt = await mcp_adapter.get_all_tools()
-        logger.info(f"MCP connected: {len(tools_for_prompt)} tools available.")
+        # ✅ Dynamically fetch tool inventory from MCP (authoritative source)
+        tools_resp = await session.list_tools()
+        tools = [t.model_dump() if hasattr(t, "model_dump") else t for t in tools_resp.tools]
+        logger.info(f"MCP connected: {len(tools)} tools available.")
 
-        # ✅ Inject tools into planner prompts
-        from prompts.load_agent_prompts import load_planner_prompts
-        planner_prompts = load_planner_prompts(user_task=args.once or "", tools=tools_for_prompt)
+    # ✅ Inject these tools into your planner prompt dynamically
+    from prompts.load_agent_prompts import load_planner_prompts
+    planner_prompts = load_planner_prompts(
+        user_task=args.once or "",
+        tools=tools
+    )
 
-        # ✅ Initialize AgentCore inside the session (session stays open)
-        agent = AgentCore(
-            local_model_name=args.local_model,
-            api_model_name=args.api_model,
-            planner_prompts=planner_prompts,
-        )
+    # 🔧 Initialize the agent AFTER prompts are ready
+    agent = AgentCore(
+        local_model_name=args.local_model,
+        api_model_name=args.api_model,
+        planner_prompts=planner_prompts,  # ✅ pass to AgentCore if supported
+    )
 
-        if args.once:
-            instruction = args.once.strip()
+    if args.once:
+        instruction = args.once.strip()
+        logger.info("=" * 50)
+        logger.info(f"User Instruction: {instruction}")
+        try:
+            await run_agent_with_mcp(instruction, agent, mcp_adapter, console)
             logger.info("=" * 50)
-            logger.info(f"User Instruction: {instruction}")
-            try:
-                await run_agent_with_mcp(instruction, agent, mcp_adapter, console)
-                logger.info("=" * 50)
-            except Exception as e:
-                logger.error(f"Execution failed: {e}", exc_info=True)
-                if console and RICH_AVAILABLE:
-                    console.print(f"❌ [bold red]Error:[/bold red] {e}")
-                else:
-                    print(f"❌ Error: {e}")
-        else:
-            print("Interactive mode not implemented. Use --once.")
+        except Exception as e:
+            logger.error(f"Execution failed: {e}", exc_info=True)
+            if console and RICH_AVAILABLE:
+                console.print(f"❌ [bold red]Error:[/bold red] {e}")
+            else:
+                print(f"❌ Error: {e}")
+    else:
+        print("Interactive mode not implemented. Use --once.")
 
 
 if __name__ == "__main__":
